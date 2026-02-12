@@ -1,0 +1,8 @@
+discord.py
+google-generativeai
+python-dotenv
+aiohttp
+psutil
+groq
+PyNaCl
+cryptography
