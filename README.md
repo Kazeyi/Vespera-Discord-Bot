@@ -4,7 +4,7 @@ Vespera ("The Silent Architect") is a highly modular, advanced Discord bot desig
 
 ## Core Features
 *   **Vespera Personality Engine**: A unified response system ensuring consistent tone and style across all bot interactions.
-*   **Cloud Engine**: AI-driven infrastructure advisor, Terraform code generation (AWS/GCP/Azure), and cost estimation.
+*   **Cloud Engine**: AI-driven infrastructure advisor, Terraform code generation (AWS/GCP/Azure), and cost estimation. [Will be addded later.]
 *   **Dungeons & Dragons System**: Complete 5e rules integration, character sheet management, and narrative AI assistance.
 *   **Moderator Core**: Automated threat analysis and community safety tools.
 *   **Utility Core**: Centralized memory management and optimization for low-resource environments (1 Core / 1GB RAM optimized).
