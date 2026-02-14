@@ -57,12 +57,22 @@ To prevent **Personality Drift**—where the bot sounds like a pirate in one com
 ### Phase 2: Transition to Sequential Agentic Orchestration
 *Goal: Evolving Vespera from a monolithic utility into a collaborative Multi-Agent System (MAS) optimized for low-resource environments (1GB RAM).*
 
-*   **Implementation of the "Blackboard" Pattern**: Transitioning from in-memory context to a persistent SQLite State Machine. This allows agents to "hibernate" when not in use, keeping the memory footprint flat.
-*   **Sequential Task Handoff**:
-    *   **The Weaver (Creative)**: Initiates the response/narrative.
-    *   **The Arbiter (Governance)**: Validates the output against Truth Blocks (Rules/Policies).
-    *   **The Stylist (Persona)**: Applies the final "Silent Architect" tone.
-*   **Agentic Self-Correction**: Implementing a feedback loop where the Arbiter can reject a response from the Weaver and request a "rewrite" based on specific policy violations (Cloud Security or D&D 2024 Rules) before the user ever sees it.
+**Core Architecture**: Transitioning from in-memory context to a "Blackboard" Pattern (SQLite State Machine), allowing agents to hibernate when idle.
+
+#### 1. Dungeons & Dragons (Narrative Engine)
+*   **The Weaver (Generative)**: Drafts the story, improvisation, and NPC dialogue. 
+*   **The Arbiter (Governance)**: Checks the draft against 5e Rules (Truth Blocks) and dice rolls. Rejects "impossible" actions or "hallucinated" spells.
+*   **The Stylist (Persona)**: Refines the output into the immersive "Dungeon Master" tone.
+
+#### 2. Cloud Engine (Infrastructure Operations)
+*   **The Architect (Planner)**: Generates Terraform code and architectural diagrams based on user intent.
+*   **The Sentinel (Security)**: Audits the code against Policy-as-Code (IAM restrictions, Cost Budgets). Blocks insecure deployments before they happen.
+*   **The Liaison (Interface)**: Translates technical errors, Terraform plans, and JSON outputs into human-readable executive summaries.
+
+#### 3. Moderator Core (Community Governance)
+*   **The Watcher (Analysis)**: Scans chat context for sentiment and pattern matching (beyond simple REGEX).
+*   **The Justicar (Verdict)**: Compares behavior against the server's specific Constitution/Rulebook to determine intent.
+*   **The Diplomat (Intervention)**: Generates de-escalation messages or ban notices that are firm but professional, avoiding "robotic" automated warnings.
 
 ## Installation
 1.  Clone the repository.
