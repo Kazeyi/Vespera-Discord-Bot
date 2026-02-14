@@ -52,6 +52,18 @@ To prevent **Personality Drift**—where the bot sounds like a pirate in one com
 *   **Usage**: All 15+ cogs import their prompts, color palettes (`0x2C2F33`), and error messages from this central registry.
 *   **Effect**: If we need to change Vespera's tone from "Cold Architect" to "Happy Helper", we change it in *one* file, and the entire bot updates instantly.
 
+## Future Roadmap
+
+### Phase 2: Transition to Sequential Agentic Orchestration
+*Goal: Evolving Vespera from a monolithic utility into a collaborative Multi-Agent System (MAS) optimized for low-resource environments (1GB RAM).*
+
+*   **Implementation of the "Blackboard" Pattern**: Transitioning from in-memory context to a persistent SQLite State Machine. This allows agents to "hibernate" when not in use, keeping the memory footprint flat.
+*   **Sequential Task Handoff**:
+    *   **The Weaver (Creative)**: Initiates the response/narrative.
+    *   **The Arbiter (Governance)**: Validates the output against Truth Blocks (Rules/Policies).
+    *   **The Stylist (Persona)**: Applies the final "Silent Architect" tone.
+*   **Agentic Self-Correction**: Implementing a feedback loop where the Arbiter can reject a response from the Weaver and request a "rewrite" based on specific policy violations (Cloud Security or D&D 2024 Rules) before the user ever sees it.
+
 ## Installation
 1.  Clone the repository.
 2.  Install dependencies:
