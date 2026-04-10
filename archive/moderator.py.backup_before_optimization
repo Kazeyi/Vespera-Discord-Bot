@@ -1,0 +1,406 @@
+import discord
+from discord import app_commands
+from discord.ext import commands
+import sqlite3
+import time
+import json
+import re
+import os
+import sys
+from collections import defaultdict, deque
+from dotenv import load_dotenv
+import io
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from database import DB_FILE, get_mod_settings, get_server_model_name, get_target_language
+from ai_manager import ask_ai, sanitize_input
+
+load_dotenv()
+DEFAULT_MODEL = 'models/gemma-3-27b-it'
+
+# --- HELPER CHECKS ---
+async def is_bot_owner(interaction: discord.Interaction):
+    return await interaction.client.is_owner(interaction.user)
+
+def is_server_authority():
+    async def predicate(interaction: discord.Interaction):
+        if interaction.guild and interaction.user.id == interaction.guild.owner_id: return True
+        if interaction.user.guild_permissions.administrator or interaction.user.guild_permissions.manage_guild: return True
+        s = get_mod_settings(interaction.guild.id)
+        if s and s[1] and interaction.user.get_role(int(s[1])): return True
+        return False
+    return app_commands.check(predicate)
+
+class ModeratorCog(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+        self.spam_check = defaultdict(lambda: deque(maxlen=5))
+        self.media_spam_tracker = defaultdict(lambda: deque(maxlen=4))
+        self.gaming_stack = defaultdict(lambda: {'score': 0, 'last_msg': 0})
+        self.processed_cache = {}
+        self._ensure_mod_tables()
+
+    # --- ENSURE DB SCHEMA ---
+    def _ensure_mod_tables(self):
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute('''CREATE TABLE IF NOT EXISTS mod_settings (guild_id TEXT PRIMARY KEY, log_channel_id TEXT, mod_role_id TEXT)''')
+        columns = ["politics_channel_id", "nsfw_channel_id", "gaming_channel_id", "vip_role_id", "server_context", "ai_model"]
+        for col in columns:
+            try: c.execute(f"ALTER TABLE mod_settings ADD COLUMN {col} TEXT")
+            except: pass
+        c.execute('''CREATE TABLE IF NOT EXISTS user_reputation (user_id TEXT, guild_id TEXT, toxicity_score INTEGER, last_offense_time REAL, PRIMARY KEY (user_id, guild_id))''')
+        conn.commit()
+        conn.close()
+
+    # --- DB HELPERS (Local to Mod for specific tables) ---
+    def update_rep(self, user_id, guild_id, points):
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute("SELECT toxicity_score, last_offense_time FROM user_reputation WHERE user_id=? AND guild_id=?", (str(user_id), str(guild_id)))
+        res = c.fetchone()
+        now = time.time()
+        
+        if res:
+            score, last = res
+            decay = int((now - last) / 3600) * 2 # Heal 2 points per hour
+            new_score = max(0, score - decay) + points
+        else:
+            new_score = points
+            
+        c.execute("REPLACE INTO user_reputation VALUES (?, ?, ?, ?)", (str(user_id), str(guild_id), new_score, now))
+        conn.commit()
+        conn.close()
+        return new_score
+
+    def save_settings(self, guild_id, **kwargs):
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        # Upsert
+        c.execute("INSERT OR IGNORE INTO mod_settings (guild_id) VALUES (?)", (str(guild_id),))
+        
+        # Map friendly names to db columns
+        mapping = {
+            'log_channel': 'log_channel_id', 
+            'mod_role': 'mod_role_id', 
+            'politics_channel': 'politics_channel_id', 
+            'nsfw_channel': 'nsfw_channel_id', 
+            'gaming_channel': 'gaming_channel_id', 
+            'vip_role': 'vip_role_id',
+            'context': 'server_context',
+            'model': 'ai_model'
+        }
+        
+        for k, v in kwargs.items():
+            col = mapping.get(k, k)
+            if col and kwargs[k]:
+                val = kwargs[k]
+                val_str = str(val.id) if hasattr(val, 'id') else str(val)
+                if val is None: val_str = "None"
+                c.execute(f"UPDATE mod_settings SET {col}=? WHERE guild_id=?", (val_str, str(guild_id)))
+        
+        conn.commit()
+        conn.close()
+
+    # --- ANALYSIS ---
+    async def analyze_content(self, text, context_history="", server_context="General Gaming", guild_id=None, current_channel_type="General"):
+        try:
+            clean = text.replace("||", "")
+            ch_instr = ""
+            if current_channel_type == "POLITICS": ch_instr = "IN POLITICS CHANNEL: Allow gov/pol anger."
+            elif current_channel_type == "GAMING": ch_instr = "IN GAMING CHANNEL: Allow deep strategy."
+            
+            prompt = (f"IDENTITY: Vespera, The Sentinel Interface.\n"
+                      f"PROTOCOL: Threat Analysis & Response Calculation.\n"
+                      f"CONTEXT: {server_context} | CHANNEL: {current_channel_type}\n{ch_instr}\n\n"
+                      
+                      f"THREAT DEFINITIONS:\n"
+                      f"- **TOXIC:** Personal attacks, severe harassment. (Slurs = Severity 10).\n"
+                      f"- **POLITICS:** Government/Election talk keywords. (Severity 4+).\n"
+                      f"- **GAMING:** Technical jargon/Stats. (Severity 5+).\n\n"
+                      
+                      f"RESPONSE PROTOCOL:\n"
+                      f"- Severity 1-3: 'Monitor subject.'\n"
+                      f"- Severity 4-6: 'Issue verbal warning or Redirect.'\n"
+                      f"- Severity 7-8: 'Recommended: Timeout/Mute.'\n"
+                      f"- Severity 9-10: 'CRITICAL: Immediate Ban recommended.'\n\n"
+
+                      f"INPUT: {clean}\nHISTORY: {context_history}\n"
+                      f"JSON SCHEMA: {{ \"category\": \"Str\", \"severity\": Int(0-10), \"reason\": \"Str\", \"action_recommendation\": \"Str\" }}")
+            
+            target_model = DEFAULT_MODEL
+            if guild_id:
+                s = get_mod_settings(guild_id)
+                if s and s[7]: target_model = s[7]
+
+            raw, used = await ask_ai(prompt, target_model)
+            if "```" in raw: raw = re.sub(r"```json|```", "", raw).strip()
+            d = json.loads(raw)
+            return (
+                d.get("category", "SAFE").upper(), 
+                d.get("severity", 0), 
+                d.get("reason", "No reason"),
+                d.get("action_recommendation", "Monitor subject")
+            )
+        except: return "SAFE", 0, "Error", "None"
+
+    async def __send_attachments_to_channel(self, attachments, dest_channel):
+        files = []
+        for a in attachments:
+            try:
+                data = await a.read()
+                bio = io.BytesIO(data)
+                bio.seek(0)
+                files.append(discord.File(bio, filename=a.filename))
+            except:
+                continue
+        if files:
+            try:
+                await dest_channel.send(files=files)
+            except: pass
+
+    async def trigger_mod_alert(self, message, severity, reason, log_id, role_id, title, action_rec):
+        if "Shadow" not in title and "Spam" not in title:
+            if message.id in self.processed_cache: return
+            self.processed_cache[message.id] = True
+        
+        try:
+            cid = int(log_id); ch = self.bot.get_channel(cid)
+            if not ch: ch = await self.bot.fetch_channel(cid)
+        except: return
+
+        color = 0xF1C40F 
+        if severity >= 5: color = 0xE67E22 
+        if severity >= 8: color = 0x992D22 
+        
+        embed = discord.Embed(title=title, color=color)
+        embed.set_thumbnail(url=message.author.display_avatar.url)
+        embed.add_field(name="Severity", value=f"**{severity}/10**", inline=True)
+        embed.add_field(name="User", value=message.author.mention, inline=True)
+        embed.add_field(name="🤖 Vespera Protocol", value=f"`{action_rec}`", inline=False)
+        clean = message.content[:1000].replace("||", "")
+        embed.add_field(name="Message (Hidden)", value=f"||```\n{clean}\n```||", inline=False)
+        embed.add_field(name="AI Analysis", value=f"*{reason}*", inline=False)
+        embed.add_field(name="Action", value=f"[Jump]({message.jump_url})", inline=False)
+        try: 
+            content = f"<@&{role_id}>" if role_id else None
+            await ch.send(content=content, embed=embed)
+        except: pass
+
+    async def handle_redirect(self, message, target_id, reason, user_id):
+        if not target_id or str(message.channel.id) == str(target_id): return
+        ch = self.bot.get_channel(int(target_id))
+        lang_pref = get_target_language(user_id, "English")
+        msg_content = f"⚠️ **Redirect: {reason}**\nThis topic belongs in {ch.mention}. Please continue there."
+        if "indonesia" in lang_pref.lower() or "bahasa" in lang_pref.lower():
+            msg_content = f"⚠️ **Pengalihan: {reason}**\nTopik ini seharusnya dibahas di {ch.mention}. Silakan lanjut di sana ya."
+        if ch: await message.reply(msg_content, delete_after=15)
+
+    @commands.Cog.listener()
+    async def on_message(self, message):
+        if message.author.bot or not message.guild: return
+        
+        # 1. Spam Check
+        now = time.time()
+        self.spam_check[message.author.id].append(now)
+        if len(self.spam_check[message.author.id]) == 5:
+            if now - self.spam_check[message.author.id][0] < 3: # 5 msgs in 3 sec
+                await message.channel.send(f"{message.author.mention} ⚠️ Slow down!", delete_after=5)
+                self.update_rep(message.author.id, message.guild.id, 2)
+
+        # 2. Media Spam Check (from legacy)
+        if message.attachments or "http" in message.content:
+            self.media_spam_tracker[message.author.id].append(now)
+            if len(self.media_spam_tracker[message.author.id]) >= 4 and now - self.media_spam_tracker[message.author.id][0] < 60:
+                if self.update_rep(message.author.id, message.guild.id, 5) >= 15:
+                    s = get_mod_settings(message.guild.id)
+                    if s and s[0] and s[1]:
+                        await self.trigger_mod_alert(message, 5, "Media Spam Flood.", s[0], s[1], "⚠️ Media Spam Alert", "Timeout (1h)")
+                    self.media_spam_tracker[message.author.id].clear()
+
+        if len(message.content) < 4: return
+
+        s = get_mod_settings(message.guild.id)
+        if not s or not s[0]: return # No log channel = disabled
+        
+        # Determine channel type
+        current_channel_type = "General"
+        if s[2] and str(message.channel.id) == str(s[2]): current_channel_type = "POLITICS"
+        elif s[4] and str(message.channel.id) == str(s[4]): current_channel_type = "GAMING"
+        elif s[3] and str(message.channel.id) == str(s[3]): current_channel_type = "NSFW"
+        elif message.channel.is_nsfw(): current_channel_type = "NSFW"
+
+        # Get context history
+        context = []
+        async for m in message.channel.history(limit=2, before=message): 
+            context.append(f"{m.author.name}: {m.content}")
+        
+        server_context = s[6] if s[6] else "General Gaming"
+        cat, sev, reason, action_rec = await self.analyze_content(
+            message.content, 
+            " | ".join(reversed(context)), 
+            server_context, 
+            message.guild.id, 
+            current_channel_type
+        )
+
+        if cat == "TOXIC":
+            if sev > 3:
+                new_score = self.update_rep(message.author.id, message.guild.id, sev)
+                if sev >= 7: 
+                    await self.trigger_mod_alert(message, sev, reason, s[0], s[1], "🚨 High Toxicity", action_rec)
+                elif new_score >= 20: 
+                    await self.trigger_mod_alert(message, sev, reason, s[0], s[1], "⚠️ Shadow Alert (Pattern)", "Monitor / Timeout")
+                    self.update_rep(message.author.id, message.guild.id, -10)
+        
+        elif cat == "GAMING":
+            if current_channel_type != "GAMING" and s[4]:
+                stack = self.gaming_stack[message.author.id]
+                if time.time() - stack['last_msg'] > 300: stack['score'] = 0
+                stack['score'] += sev; stack['last_msg'] = time.time()
+                if sev >= 5 or stack['score'] >= 15:
+                    await self.handle_redirect(message, s[4], "Gaming Discussion", message.author.id)
+                    stack['score'] = 0
+        else:
+            if message.author.id in self.gaming_stack: 
+                self.gaming_stack[message.author.id]['score'] = max(0, self.gaming_stack[message.author.id]['score'] - 2)
+
+        if cat == "POLITICS" and sev >= 4 and current_channel_type != "POLITICS": 
+            await self.handle_redirect(message, s[2], "Politics", message.author.id)
+        elif cat == "NSFW" and sev >= 4 and current_channel_type != "NSFW": 
+            await self.handle_redirect(message, s[3], "NSFW Content", message.author.id)
+
+    @app_commands.command(name="setup_mod", description="Configure Moderation")
+    @app_commands.default_permissions(manage_guild=True)
+    async def setup_mod(self, i: discord.Interaction, 
+                        log_channel: discord.TextChannel = None, 
+                        mod_role: discord.Role = None,
+                        context: str = None, 
+                        vip_role: discord.Role = None,
+                        politics_channel: discord.TextChannel = None, 
+                        nsfw_channel: discord.TextChannel = None,
+                        gaming_channel: discord.TextChannel = None):
+        if not any([log_channel, mod_role, context, vip_role, politics_channel, nsfw_channel, gaming_channel]):
+            await i.response.send_message("❌ You must select at least one option!", ephemeral=True)
+            return
+        
+        kwargs = {}
+        if log_channel: kwargs['log_channel'] = log_channel
+        if mod_role: kwargs['mod_role'] = mod_role
+        if context: kwargs['context'] = context
+        if vip_role: kwargs['vip_role'] = vip_role
+        if politics_channel: kwargs['politics_channel'] = politics_channel
+        if nsfw_channel: kwargs['nsfw_channel'] = nsfw_channel
+        if gaming_channel: kwargs['gaming_channel'] = gaming_channel
+        
+        self.save_settings(i.guild.id, **kwargs)
+        
+        msg_parts = ["✅ **Moderation Configuration Updated!**\n\nSet:"]
+        if log_channel: msg_parts.append(f"• 📢 Alert Channel: {log_channel.mention}")
+        if mod_role: msg_parts.append(f"• 👮 Mod Role: {mod_role.mention}")
+        if vip_role: msg_parts.append(f"• 🌟 VIP Role: {vip_role.mention}")
+        if context: msg_parts.append(f"• 🌍 Server Context: *{context}*")
+        if gaming_channel: msg_parts.append(f"• 🎮 Gaming Channel: {gaming_channel.mention}")
+        if politics_channel: msg_parts.append(f"• 🏛️ Politics Channel: {politics_channel.mention}")
+        if nsfw_channel: msg_parts.append(f"• 🔞 NSFW Channel: {nsfw_channel.mention}")
+        msg_parts.append("\n👉 Run `/settings` to verify.")
+        
+        await i.response.send_message("\n".join(msg_parts), ephemeral=True)
+
+    @app_commands.command(name="my_rep", description="Check your reputation score")
+    async def my_rep(self, i: discord.Interaction):
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute("SELECT toxicity_score, last_offense_time FROM user_reputation WHERE user_id=? AND guild_id=?", (str(i.user.id), str(i.guild.id)))
+        res = c.fetchone()
+        conn.close()
+        
+        final_score = 0
+        if res:
+            score, last_time = res
+            hours = (time.time() - last_time) / 3600
+            decay = int(hours * 2)  # Heals 2 points per hour
+            final_score = max(0, score - decay)
+        
+        color = 0x00ff00
+        status = "✅ Good Citizen"
+        if final_score > 10: 
+            color = 0xffa500
+            status = "⚠️ Caution"
+        if final_score > 18: 
+            color = 0xff0000
+            status = "🚨 Critical Risk"
+        
+        embed = discord.Embed(title=f"🛡️ Reputation: {i.user.name}", color=color)
+        embed.add_field(name="Toxicity Score", value=f"**{final_score}/20**", inline=False)
+        embed.add_field(name="Status", value=status, inline=False)
+        embed.set_footer(text="Score heals by 2 points every hour.")
+        await i.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(name="setmodel", description="Choose AI Model (Bot Owner Only)")
+    @app_commands.check(is_bot_owner)
+    @app_commands.describe(model="Select the AI Model")
+    @app_commands.choices(model=[
+        app_commands.Choice(name="🔹 Gemma 3 27B-IT (Default)", value="models/gemma-3-27b-it"),
+        app_commands.Choice(name="⚡ Gemini 2.0 Flash Lite", value="models/gemini-2.0-flash-lite"),
+        app_commands.Choice(name="🧠 Gemini 2.5 Flash Lite", value="models/gemini-2.5-flash-lite"),
+        app_commands.Choice(name="🚀 Gemini 3.0 Flash Preview", value="models/gemini-3-flash-preview")
+    ])
+    async def setmodel(self, interaction: discord.Interaction, model: app_commands.Choice[str]):
+        self.save_settings(interaction.guild.id, model=model.value)
+        await interaction.response.send_message(f"✅ AI Brain updated to **{model.name}**!", ephemeral=True)
+
+    @app_commands.command(name="settings", description="View Dashboard")
+    @app_commands.default_permissions(manage_guild=True)
+    async def settings(self, interaction: discord.Interaction):
+        s = get_mod_settings(interaction.guild.id)
+        if not s: return await interaction.response.send_message("Not configured.", ephemeral=True)
+        log_id, role_id, pol_id, nsfw_id, game_id, vip_id, context, model = s
+        def fmt_ch(cid): return f"<#{cid}>" if cid else "❌ Not Set"
+        def fmt_role(rid): return f"<@&{rid}>" if rid else "❌ Not Set"
+        embed = discord.Embed(title="🎛️ Dashboard", color=0x3498db)
+        embed.add_field(name="📢 Alerts", value=fmt_ch(log_id), inline=True)
+        embed.add_field(name="👮 Role", value=fmt_role(role_id), inline=True)
+        embed.add_field(name="🧠 AI", value=model if model else DEFAULT_MODEL, inline=True)
+        embed.add_field(name="🎮 Gaming", value=fmt_ch(game_id), inline=True)
+        embed.add_field(name="🏛️ Politics", value=fmt_ch(pol_id), inline=True)
+        embed.add_field(name="🔞 NSFW", value=fmt_ch(nsfw_id), inline=True)
+        embed.add_field(name="🌟 VIP Role", value=fmt_role(vip_id), inline=True)
+        embed.add_field(name="🌍 Context", value=f"*{context}*" if context else "Default", inline=False)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(name="test_alert", description="Debug: Force a manual alert")
+    @app_commands.default_permissions(administrator=True)
+    async def test_alert(self, interaction: discord.Interaction):
+        settings = get_mod_settings(interaction.guild.id)
+        if not settings: 
+            return await interaction.response.send_message("❌ **Bot not configured!** Run `/setup_mod` first.", ephemeral=True)
+        
+        log_id, role_id, _, _, _, _, _, _ = settings
+        
+        if not log_id:
+            return await interaction.response.send_message("❌ **No alert channel configured.** Run `/setup_mod` with a log channel.", ephemeral=True)
+        
+        log_channel = self.bot.get_channel(int(log_id))
+        if not log_channel: 
+            return await interaction.response.send_message(f"❌ **Error:** Cannot see channel `{log_id}`. Check permissions.", ephemeral=True)
+        
+        try:
+            await interaction.response.send_message("📨 **Sending test alert...**", ephemeral=True)
+            
+            embed = discord.Embed(
+                title="🔔 Test Alert", 
+                description="Testing moderation system permissions.", 
+                color=0x00ff00
+            )
+            embed.add_field(name="Status", value="✅ Permissions OK!", inline=False)
+            embed.set_footer(text="This is a test message")
+            
+            ping_text = f"Ping: <@&{role_id}>" if role_id else "Alert test"
+            await log_channel.send(content=ping_text, embed=embed)
+            await interaction.followup.send("✅ **Test successful!** Alert system is operational.")
+        except Exception as e: 
+            await interaction.followup.send(f"❌ **Error:** {str(e)[:100]}")
+
+async def setup(bot):
+    await bot.add_cog(ModeratorCog(bot))

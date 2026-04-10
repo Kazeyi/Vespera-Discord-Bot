@@ -1,0 +1,246 @@
+import discord
+from discord import app_commands
+from discord.ext import commands, tasks
+import re
+import os
+from datetime import datetime
+import time
+import sys
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from database import get_target_language, get_vip_role_id, get_server_model_name
+from ai_manager import ask_ai, sanitize_input
+
+class TLDRCog(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+        self.user_cooldowns = {}
+        self.processed_cache = {}
+        self.clear_cache_task.start()
+        
+        # Context Menu
+        self.ctx_menu = app_commands.ContextMenu(name="TL;DR", callback=self.tldr_message_context)
+        self.bot.tree.add_command(self.ctx_menu)
+
+    def cog_unload(self):
+        self.clear_cache_task.cancel()
+        self.bot.tree.remove_command(self.ctx_menu.name, type=self.ctx_menu.type)
+
+    @tasks.loop(hours=1)
+    async def clear_cache_task(self):
+        self.processed_cache.clear()
+        self.user_cooldowns.clear()
+
+    def is_rate_limited(self, user_id):
+        now = time.time()
+        if now - self.user_cooldowns.get(user_id, 0) < 10: return True
+        self.user_cooldowns[user_id] = now
+        return False
+
+    def clean_content(self, msg):
+        return re.sub(r'<a?:\w+:\d+>|http\S+', '', msg.content).strip()
+
+    def format_history(self, messages, vip_role_id):
+        lines = []
+        for m in messages:
+            content = self.clean_content(m)
+            if not content: continue
+            
+            name = m.author.display_name
+            is_vip = False
+            if vip_role_id and isinstance(m.author, discord.Member):
+                if m.author.get_role(int(vip_role_id)): is_vip = True
+            if m.guild and m.author.id == m.guild.owner_id: is_vip = True
+            
+            tag = "🌟 " if is_vip else ""
+            lines.append(f"{tag}{name}: {content}")
+        return "\n".join(lines)
+
+    def smart_truncate_history(self, text_list, max_chars=20000):
+        full_text = "\n".join(text_list)
+        if len(full_text) <= max_chars: return full_text
+        head = full_text[:6000]
+        tail = full_text[-6000:]
+        return f"{head}\n\n... [Middle removed] ...\n\n{tail}"
+
+    async def generate_summary(self, text, lang, guild_id):
+        lang = sanitize_input(lang, max_length=50)
+        model = get_server_model_name(guild_id)
+        
+        now_str = datetime.now().strftime("%A, %B %d, %Y")
+        prompt = (f"IDENTITY: Vespera, The Silent Architect.\n"
+                  f"PROTOCOL: Generate a Tactical Summary (TL;DR) for {now_str}.\n"
+                  f"TARGET LANGUAGE: {lang}.\n"
+                  f"DIRECTIVES:\n"
+                  f"1. **VIP RECOGNITION:** Mark high-value targets (Usernames with 🌟) as priority.\n"
+                  f"2. **CLUSTERING:** Group data by topic. Eliminate noise.\n"
+                  f"3. **TONE:** Clinical, precise, slightly cold but helpful.\n"
+                  f"INPUT LOG:\n{text[:12000]}\n\n"
+                  f"OUTPUT TEXT ONLY (Formatted with Bullet Points).")
+        
+        response, used_model = await ask_ai(prompt, model)
+        return response
+
+    @app_commands.command(name="tldr", description="Summarize chat (Highlights VIPs)")
+    async def tldr(self, interaction: discord.Interaction, limit: int = 50):
+        if self.is_rate_limited(interaction.user.id):
+            return await interaction.response.send_message("⏳ Slow down!", ephemeral=True)
+        
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            history = [m async for m in interaction.channel.history(limit=limit) if not m.author.bot]
+            if not history:
+                return await interaction.followup.send("❌ No messages to summarize.", ephemeral=True)
+            
+            history.reverse()
+            
+            vip_id = get_vip_role_id(interaction.guild.id)
+            formatted_lines = []
+            for msg in history:
+                content = self.clean_content(msg)
+                if not content: continue
+                
+                name = msg.author.display_name
+                is_vip = False
+                if vip_id and isinstance(msg.author, discord.Member):
+                    if msg.author.get_role(int(vip_id)): is_vip = True
+                if interaction.guild and msg.author.id == interaction.guild.owner_id: is_vip = True
+                
+                tag = "🌟 " if is_vip else ""
+                formatted_lines.append(f"{tag}{name}: {content}")
+            
+            if not formatted_lines:
+                return await interaction.followup.send("❌ Not enough text to summarize.", ephemeral=True)
+
+            final_text = self.smart_truncate_history(formatted_lines)
+            
+            if len(final_text) < 50:
+                return await interaction.followup.send("❌ Not enough text to summarize.", ephemeral=True)
+
+            lang = get_target_language(interaction.user.id, interaction.locale)
+            summary = await self.generate_summary(final_text, lang, interaction.guild.id)
+            
+            embed = discord.Embed(title=f"📝 Chat Summary (Last {limit} messages)", description=summary, color=0xFFD700)
+            embed.set_footer(text=f"Vespera // Absolute distillation of data • AI: {get_server_model_name(interaction.guild.id)}")
+            await interaction.followup.send(embed=embed)
+        except discord.Forbidden:
+            await interaction.followup.send("❌ Error: Missing permissions to read messages.", ephemeral=True)
+        except Exception as e:
+            await interaction.followup.send(f"❌ Error: {str(e)[:100]}", ephemeral=True)
+
+    async def tldr_message_context(self, interaction: discord.Interaction, message: discord.Message):
+        if self.is_rate_limited(interaction.user.id):
+            return await interaction.response.send_message("⏳ Slow down!", ephemeral=True)
+        
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            # Fetch context around message
+            history = [m async for m in interaction.channel.history(limit=20, before=message.created_at)]
+            history.append(message)
+            history = [m for m in history if not m.author.bot]
+            
+            if not history:
+                return await interaction.followup.send("❌ No messages to analyze.", ephemeral=True)
+            
+            vip_id = get_vip_role_id(interaction.guild.id)
+            formatted_lines = []
+            for msg in history:
+                content = self.clean_content(msg)
+                if not content: continue
+                
+                name = msg.author.display_name
+                is_vip = False
+                if vip_id and isinstance(msg.author, discord.Member):
+                    if msg.author.get_role(int(vip_id)): is_vip = True
+                if interaction.guild and msg.author.id == interaction.guild.owner_id: is_vip = True
+                
+                tag = "🌟 " if is_vip else ""
+                formatted_lines.append(f"{tag}{name}: {content}")
+            
+            if not formatted_lines:
+                return await interaction.followup.send("❌ No text to analyze.", ephemeral=True)
+            
+            final_text = "\n".join(formatted_lines)
+            
+            lang = get_target_language(interaction.user.id, interaction.locale)
+            summary = await self.generate_summary(final_text, lang, interaction.guild.id)
+            
+            embed = discord.Embed(title="🔍 Context Analysis", description=summary, color=0xFFD700)
+            embed.set_footer(text="Vespera // Capturing nuance and intent")
+            await interaction.followup.send(embed=embed)
+        except Exception as e:
+            await interaction.followup.send(f"❌ Error: {str(e)[:100]}", ephemeral=True)
+
+    @commands.Cog.listener()
+    async def on_raw_reaction_add(self, payload):
+        if payload.user_id == self.bot.user.id: return
+        if payload.emoji.name not in ["📝", "✏️", "✏"]: return
+        
+        now = time.time()
+        cache_key = f"{payload.message_id}_{payload.emoji.name}_{payload.user_id}"
+        if cache_key in self.processed_cache and (now - self.processed_cache[cache_key] < 10):
+            return
+        self.processed_cache[cache_key] = now
+
+        if self.is_rate_limited(payload.user_id): return
+
+        channel = self.bot.get_channel(payload.channel_id)
+        if not channel: return
+        try:
+            target_msg = await channel.fetch_message(payload.message_id)
+        except:
+            return
+
+        try:
+            # gather context around message
+            msgs = []
+            async for m in channel.history(limit=15, before=target_msg):
+                if m.author.bot: continue
+                msgs.append(m)
+            if not target_msg.author.bot:
+                msgs.append(target_msg)
+            if not msgs:
+                return
+            msgs.reverse()
+            
+            vip_id = get_vip_role_id(payload.guild_id) if payload.guild_id else None
+            formatted_lines = []
+            for msg in msgs:
+                content = self.clean_content(msg)
+                if not content: continue
+                
+                name = msg.author.display_name
+                is_vip = False
+                if vip_id and isinstance(msg.author, discord.Member):
+                    if msg.author.get_role(int(vip_id)): is_vip = True
+                if msg.guild and msg.author.id == msg.guild.owner_id: is_vip = True
+                
+                tag = "🌟 " if is_vip else ""
+                formatted_lines.append(f"{tag}{name}: {content}")
+            
+            if not formatted_lines:
+                return
+            
+            final_text = "\n".join(formatted_lines)
+            
+            lang = get_target_language(payload.user_id, "English")
+            summary = await self.generate_summary(final_text, lang, payload.guild_id)
+
+            if len(summary) > 1900:
+                await target_msg.reply(f"**TL;DR** 📝:\n{summary[:1900]}...", mention_author=False)
+            else:
+                await target_msg.reply(f"**TL;DR** 📝:\n{summary}", mention_author=False)
+
+            # try to remove user's reaction for cleanliness
+            try:
+                member = self.bot.get_user(payload.user_id)
+                await target_msg.remove_reaction(payload.emoji, member)
+            except:
+                pass
+        except Exception:
+            return
+
+async def setup(bot):
+    await bot.add_cog(TLDRCog(bot))

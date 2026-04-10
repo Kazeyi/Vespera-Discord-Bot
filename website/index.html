@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vespera - The Silent Architect</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+    <div class="glow-bg"></div>
+
+    <nav>
+        <div class="nav-content">
+            <div class="logo">Vespera</div>
+            <div class="links">
+                <a href="#features">Features</a>
+                <a href="#architecture">Architecture</a>
+                <a href="#roadmap">Roadmap</a>
+                <a href="https://github.com/Kazeyi/Vespera-Discord-Bot" target="_blank" class="btn btn-outline">View on
+                    GitHub</a>
+            </div>
+        </div>
+    </nav>
+
+    <header class="hero">
+        <div class="hero-content">
+            <!-- TODO: Add your custom Vespera logo here -->
+            <!-- <img src="assets/your_logo_here.png" alt="Vespera Logo" class="hero-logo"> -->
+            <h1 class="fade-up-1">The Silent Architect.</h1>
+            <p class="subtitle fade-up-2">A highly modular, advanced AI system designed for Cloud Operations, Tabletop
+                RPGs, and Automated Community Moderation.</p>
+            <div class="cta-group fade-up-3">
+                <a href="#features" class="btn btn-primary">Explore Core</a>
+                <a href="#architecture" class="btn btn-secondary">System Architecture</a>
+            </div>
+        </div>
+    </header>
+
+    <section id="features" class="features-section section-padding">
+        <h2 class="section-title text-center text-gradient">Core Engines</h2>
+        <div class="grid cards-container">
+            <div class="card reveal">
+                <div class="card-icon">☁️</div>
+                <h3>Cloud Engine</h3>
+                <p>AI-driven infrastructure advisor generating Terraform code for AWS, GCP, and Azure including accurate
+                    cost estimations.</p>
+            </div>
+            <div class="card reveal" style="transition-delay: 100ms;">
+                <div class="card-icon">🐉</div>
+                <h3>D&D Narrative System</h3>
+                <p>Complete 5e rules integration, character sheet management, and narrative AI acting as a Dungeon
+                    Master or assisting one.</p>
+            </div>
+            <div class="card reveal" style="transition-delay: 200ms;">
+                <div class="card-icon">🛡️</div>
+                <h3>Moderator Core</h3>
+                <p>Automated threat analysis and complex sentiment scoring beyond simple REGEX to keep communities
+                    secure.</p>
+            </div>
+        </div>
+    </section>
+
+    <section id="architecture" class="architecture-section section-padding">
+        <h2 class="section-title text-gradient">The Architecture of Logic</h2>
+        <p class="section-desc">Vespera is a curated system of distinct cognitive architectures solving specific
+            problems in accuracy, speed, and memory tracking.</p>
+
+        <div class="arch-timeline">
+            <!-- Arch Item 1 -->
+            <div class="arch-item reveal">
+                <div class="arch-content">
+                    <h3>Hybrid Model Orchestration</h3>
+                    <p>Tasks are dynamically routed. Groq (Llama-3) is used for near-instant (500ms) game interactions,
+                        while Gemini Pro 1.5 is used for complex Cloud codebase reading.</p>
+                </div>
+            </div>
+            <!-- Arch Item 2 -->
+            <div class="arch-item reveal">
+                <div class="arch-content">
+                    <h3>The Truth Block Protocol</h3>
+                    <p>Retrieval-Augmented Generation that forces AI constraint. Only facts directly pulled from JSON
+                        endpoints (like the D&D SRD or Terra Docs) are used to prevent hallucination.</p>
+                </div>
+            </div>
+            <!-- Arch Item 3 -->
+            <div class="arch-item reveal">
+                <div class="arch-content">
+                    <h3>Aggressive Memory Hygiene</h3>
+                    <p>Built to run flawlessly on 1 vCPU / 1GB RAM instances. Using strict Python GC tuning, manual
+                        String Interning, and LRU eviction tactics to stay efficient.</p>
+                </div>
+            </div>
+            <!-- Arch Item 4 -->
+            <div class="arch-item reveal">
+                <div class="arch-content">
+                    <h3>Chain of Thought Enforcement</h3>
+                    <p>Internal logic blocks force the model to evaluate moderation actions or cloud calculations
+                        step-by-step prior to rendering an output to the user.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="roadmap" class="roadmap-section section-padding">
+        <h2 class="section-title text-center text-gradient">Future Roadmap</h2>
+        <div class="grid cards-container">
+            <div class="card reveal" style="border-top: 3px solid #ff5f56;">
+                <h3
+                    style="color: #e6edf3; display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem; font-size: 1.1rem;">
+                    Phase 2: Agentic Dissection
+                    <span style="font-size: 0.8rem; color: #ff5f56; font-weight: 600;">June 2026</span>
+                </h3>
+                <p style="margin-bottom: 1rem; font-size: 0.95rem;"><strong>Goal:</strong> Breaking the Monolith &amp;
+                    Implementing Self-Correction via Sequential Agentic Workflow.</p>
+                <ul class="roadmap-list" style="list-style-type: none; font-size: 0.9rem;">
+                    <li style="margin-bottom: 0.5rem;"><strong style="color:var(--accent-color);">The
+                            Blackboard:</strong> Deploying the <code>agent_tasks</code> table to write to the DB instead
+                        of calling the AI directly.</li>
+                    <li style="margin-bottom: 0.5rem;"><strong
+                            style="color:var(--accent-color);">Self-Correction:</strong> The Arbiter (Critic) reviews
+                        the Weaver's (Actor) work and can force retries when rules are broken.</li>
+                    <li style="margin-bottom: 0.5rem;"><strong style="color:var(--accent-color);">XAI
+                            Traceability:</strong> A <code>/why</code> feature that traces logic and explains which
+                        agent made a specific decision.</li>
+                </ul>
+            </div>
+
+            <div class="card reveal" style="transition-delay: 100ms; border-top: 3px solid #38bdf8;">
+                <h3
+                    style="color: #e6edf3; display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem; font-size: 1.1rem;">
+                    Phase 3: Modular Skill-Set
+                    <span style="font-size: 0.8rem; color: #38bdf8; font-weight: 600;">July - Aug 2026</span>
+                </h3>
+                <p style="margin-bottom: 1rem; font-size: 0.95rem;"><strong>Goal:</strong> True Scalability &amp;
+                    Industry Standard Integration (MCP).</p>
+                <ul class="roadmap-list" style="list-style-type: none; font-size: 0.9rem;">
+                    <li style="margin-bottom: 0.5rem;"><strong style="color:var(--accent-color);">Skill-Based
+                            Arch:</strong> Moving logic from Cogs into standalone <code>skills/</code> holding fragments
+                        and templates.</li>
+                    <li style="margin-bottom: 0.5rem;"><strong style="color:var(--accent-color);">Model Context
+                            Protocol:</strong> Integrating an MCP client to seamlessly adopt external tools without
+                        wrappers.</li>
+                    <li style="margin-bottom: 0.5rem;"><strong style="color:var(--accent-color);">The Proactive
+                            Pulse:</strong> A background agent that wakes periodically to proactively audit FinOps or
+                        narrative state.</li>
+                </ul>
+            </div>
+        </div>
+    </section>
+
+    <section class="code-preview section-padding reveal">
+        <div class="terminal-window">
+            <div class="terminal-header">
+                <span class="dot red"></span>
+                <span class="dot yellow"></span>
+                <span class="dot green"></span>
+                <span class="terminal-title">vespera-core.py</span>
+            </div>
+            <div class="terminal-body">
+                <pre><code><span class="keyword">class</span> <span class="class-title">VesperaArchitecture</span>:
+    <span class="keyword">def</span> <span class="function">__init__</span>(<span class="keyword">self</span>):
+        <span class="keyword">self</span>.persona = VesperaPersonality.load()
+        <span class="keyword">self</span>.memory_engine = HybridLruCache(max_size=<span class="number">128</span>)
+        
+    <span class="keyword">async def</span> <span class="function">process_request</span>(<span class="keyword">self</span>, context):
+        engine = <span class="string">"Groq"</span> <span class="keyword">if</span> context.is_time_sensitive() <span class="keyword">else</span> <span class="string">"Gemini"</span>
+        <span class="comment"># Applying the Truth Block Protocol</span>
+        truth_data = <span class="keyword">await</span> <span class="keyword">self</span>.fetch_ground_truth(context.topic)
+        <span class="keyword">return await</span> <span class="keyword">self</span>.generate_response(engine, truth_data)</code></pre>
+            </div>
+        </div>
+    </section>
+
+    <footer>
+        <div class="footer-content">
+            <p>Vespera Discord Bot Portfolio &copy; 2026. Designed for Cloud, D&D and Communities.</p>
+        </div>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+
+</html>
