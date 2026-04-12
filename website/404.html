@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Redirecting... | Vespera</title>
+    <style>
+        body {
+            margin: 0;
+            background-color: #0d1117;
+            color: #e6edf3;
+            font-family: 'Inter', sans-serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            flex-direction: column;
+            gap: 1rem;
+        }
+        p { color: #8b949e; font-size: 0.95rem; }
+    </style>
+</head>
+<body>
+    <p>Redirecting to Vespera...</p>
+    <script>
+        // The canonical repo path (case-sensitive as on GitHub)
+        var CANONICAL = '/Vespera-Discord-Bot/';
+
+        var path = window.location.pathname;
+
+        // If the path matches our repo name case-insensitively, redirect to canonical
+        if (path.toLowerCase().startsWith('/vespera-discord-bot')) {
+            var rest = path.slice('/vespera-discord-bot'.length) || '/';
+            window.location.replace(CANONICAL + rest.replace(/^\//, '') + window.location.search + window.location.hash);
+        } else {
+            // Genuine 404 — redirect home
+            window.location.replace(CANONICAL);
+        }
+    </script>
+</body>
+</html>
