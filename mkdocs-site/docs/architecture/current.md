@@ -4,7 +4,7 @@
 
 Vespera's current architecture is a **monolithic multi-cog design** — intentionally built this way for Phase 1 to maximize reliability and minimize complexity while fitting within aggressive resource constraints (1 vCPU / 1GB RAM).
 
-!!! note "Honesty Note"
+!!! note
     This is a monolith. There is no multi-agent coordination yet. Every command is a direct Discord interaction → cog → AI call → response. The planned Lite MAS architecture (Phase 2) will change this. See [Planned: Lite MAS](lite-mas.md).
 
 ---
@@ -13,27 +13,36 @@ Vespera's current architecture is a **monolithic multi-cog design** — intentio
 
 ```mermaid
 graph TD
-    D[Discord Gateway] --> B[bot.py\nMain Bot Instance]
-    B --> C1[Cloud Cog]
-    B --> C2[D&D Cog]
-    B --> C3[Translate Cog]
-    B --> C4[TL;DR Cog]
-    B --> C5[Moderator Cog]
+    D["Discord Gateway"] --> B["bot.py<br>Main Bot Instance"]
+    B --> C1["Cloud Cog"]
+    B --> C2["D&D Cog"]
+    B --> C3["Translate Cog"]
+    B --> C4["TL;DR Cog"]
+    B --> C5["Moderator Cog"]
 
-    C1 & C2 & C3 & C4 & C5 --> VP[VesperaPersonality\nSingleton]
-    C1 & C2 & C3 & C4 & C5 --> DB[(SQLite\nbot_database.db)]
+    C1 --> VP["VesperaPersonality<br>Singleton"]
+    C2 --> VP
+    C3 --> VP
+    C4 --> VP
+    C5 --> VP
 
-    C1 --> AI_GOV[AI Request Governor\nQuota + Rate Limiting]
+    C1 --> DB[("SQLite<br>bot_database.db")]
+    C2 --> DB
+    C3 --> DB
+    C4 --> DB
+    C5 --> DB
+
+    C1 --> AI_GOV["AI Request Governor<br>Quota + Rate Limiting"]
     C2 --> AI_GOV
     C3 --> AI_GOV
     C4 --> AI_GOV
     C5 --> AI_GOV
 
-    AI_GOV --> GROQ[Groq API\nLlama 3.3 / Mixtral]
-    AI_GOV --> GEMINI[Gemini API\nPro 1.5]
+    AI_GOV --> GROQ["Groq API<br>Llama 3.3 / Mixtral"]
+    AI_GOV --> GEMINI["Gemini API<br>Pro 1.5"]
 
-    C1 --> INFRA[(cloud_infrastructure.db)]
-    C1 --> KNOW[(cloud_knowledge.db)]
+    C1 --> INFRA[("cloud_infrastructure.db")]
+    C1 --> KNOW[("cloud_knowledge.db")]
 ```
 
 ---
