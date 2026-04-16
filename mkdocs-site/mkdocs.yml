@@ -1,0 +1,83 @@
+site_name: Vespera — The Silent Architect
+site_url: https://kazeyi.github.io/Vespera-Discord-Bot/docs/
+site_description: Technical documentation for Vespera, a modular AI Discord bot for Cloud Engineering, D&D, and Community Moderation.
+repo_url: https://github.com/Kazeyi/Vespera-Discord-Bot
+repo_name: Kazeyi/Vespera-Discord-Bot
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.instant
+    - toc.integrate
+    - content.code.copy
+  font:
+    text: Inter
+    code: JetBrains Mono
+  favicon: https://kazeyi.github.io/Vespera-Discord-Bot/assets/favicon.ico
+
+extra_css:
+  - stylesheets/extra.css
+
+extra_javascript:
+  - javascripts/mermaid-init.js
+
+plugins:
+  - search
+  - mermaid2:
+      javascript: https://unpkg.com/mermaid/dist/mermaid.min.js
+      arguments:
+        theme: |
+          ^(JSON.parse(__md_get("__palette").index || 0) == 1) ? "default" : "dark"
+
+nav:
+  - Home: index.md
+  - Features:
+    - Cloud Engine: features/cloud.md
+    - D&D System: features/dnd.md
+    - Utility Core: features/utility.md
+  - Architecture:
+    - Current Design: architecture/current.md
+    - Planned — Lite MAS: architecture/lite-mas.md
+  - Roadmap: roadmap.md
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:mermaid2.fence_mermaid
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - attr_list
+  - md_in_html
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/Kazeyi/Vespera-Discord-Bot
+
+copyright: Vespera Portfolio &copy; 2026

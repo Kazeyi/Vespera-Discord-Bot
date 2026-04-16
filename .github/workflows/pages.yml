@@ -1,4 +1,4 @@
-name: Deploy website to Pages
+name: Deploy Hybrid Site to Pages
 
 on:
   push:
@@ -23,12 +23,45 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install MkDocs and plugins
+        run: pip install mkdocs mkdocs-material mkdocs-mermaid2-plugin
+
       - name: Setup Pages
         uses: actions/configure-pages@v4
+
+      - name: Prepare deployment directory
+        run: |
+          # Copy the landing page into _deploy/
+          cp -r website/ _deploy/
+          # Create a root-level 404.html that redirects to the landing page
+          cat > _deploy/404.html << 'EOF'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="UTF-8">
+            <meta http-equiv="refresh" content="0; url=/Vespera-Discord-Bot/">
+            <title>Redirecting...</title>
+          </head>
+          <body>
+            <p>Page not found. <a href="/Vespera-Discord-Bot/">Return to Vespera</a>.</p>
+          </body>
+          </html>
+          EOF
+
+      - name: Build MkDocs site directly into _deploy/docs/
+        run: mkdocs build --config-file mkdocs-site/mkdocs.yml --site-dir _deploy/docs
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: './website'
+          path: './_deploy'
+
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
