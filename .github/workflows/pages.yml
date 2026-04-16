@@ -37,9 +37,10 @@ jobs:
 
       - name: Prepare deployment directory
         run: |
-          # Copy the landing page into _deploy/
-          cp -r website/ _deploy/
-          # Create a root-level 404.html that redirects to the landing page
+          # Explicitly create _deploy first, then copy website contents into it
+          mkdir -p _deploy
+          rsync -a website/. _deploy/
+          # Create root 404.html redirecting any broken link back to landing page
           cat > _deploy/404.html << 'EOF'
           <!DOCTYPE html>
           <html lang="en">
@@ -56,6 +57,11 @@ jobs:
 
       - name: Build MkDocs site directly into _deploy/docs/
         run: mkdocs build --config-file mkdocs-site/mkdocs.yml --site-dir _deploy/docs
+
+      - name: Verify deployment structure
+        run: |
+          echo "=== _deploy/ root ===" && ls _deploy/
+          echo "=== _deploy/docs/ ===" && ls _deploy/docs/
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
