@@ -56,7 +56,7 @@ jobs:
           EOF
 
       - name: Build MkDocs site directly into _deploy/docs/
-        run: mkdocs build --config-file mkdocs-site/mkdocs.yml --site-dir _deploy/docs
+        run: mkdocs build --config-file mkdocs-site/mkdocs.yml --site-dir "$(pwd)/_deploy/docs"
 
       - name: Verify deployment structure
         run: |
