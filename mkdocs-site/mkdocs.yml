@@ -36,16 +36,8 @@ theme:
 extra_css:
   - stylesheets/extra.css
 
-extra_javascript:
-  - javascripts/mermaid-init.js
-
 plugins:
   - search
-  - mermaid2:
-      javascript: https://unpkg.com/mermaid/dist/mermaid.min.js
-      arguments:
-        theme: |
-          ^(JSON.parse(__md_get("__palette").index || 0) == 1) ? "default" : "dark"
 
 nav:
   - Home: index.md
@@ -65,7 +57,7 @@ markdown_extensions:
       custom_fences:
         - name: mermaid
           class: mermaid
-          format: !!python/name:mermaid2.fence_mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.highlight:
       anchor_linenums: true
   - pymdownx.inlinehilite

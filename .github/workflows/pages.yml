@@ -30,7 +30,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install MkDocs and plugins
-        run: pip install mkdocs mkdocs-material mkdocs-mermaid2-plugin
+        run: pip install mkdocs mkdocs-material
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
