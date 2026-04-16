@@ -4,19 +4,19 @@
 
 <div class="grid cards" markdown>
 
--   :material-lightning-bolt: **&lt;2s Latency**
+-   **&lt;2s Latency**
 
     Near-instant responses via Groq LPU inference for time-critical game interactions.
 
--   :material-memory: **1-Core / 1GB VPS**
+-   **1-Core / 1GB VPS**
 
     Aggressive memory optimizations — GC tuning, String Interning, strict LRU caches — keep the footprint flat over time.
 
--   :material-database: **186 Cloud Best Practices**
+-   **186 Cloud Best Practices**
 
     RAG knowledge base across GCP, AWS, and Azure powering the Cloud Engine advisor.
 
--   :material-shield-check: **RAG-Powered Accuracy**
+-   **RAG-Powered Accuracy**
 
     The Truth Block Protocol constrains AI output to verified facts only — no hallucinated spells or invalid Terraform resources.
 
@@ -30,8 +30,8 @@ Vespera is a Discord bot built around a **"Persona as Infrastructure"** philosop
 
 The system dynamically routes tasks to the best model for the job: **Groq (Llama-3)** for sub-500ms game round responses and **Gemini Pro 1.5** for large-context cloud document analysis. All AI outputs touching factual domains (D&D rules, Terraform specs) are constrained by **Truth Blocks** — verbatim data injected from verified sources that the model is strictly instructed to format, never invent.
 
-[View Architecture :material-arrow-right:](architecture/current.md){ .md-button .md-button--primary }
-[GitHub Repository :material-github:](https://github.com/Kazeyi/Vespera-Discord-Bot){ .md-button }
+[View Architecture →](architecture/current.md){ .md-button .md-button--primary }
+[GitHub Repository](https://github.com/Kazeyi/Vespera-Discord-Bot){ .md-button }
 
 ---
 
