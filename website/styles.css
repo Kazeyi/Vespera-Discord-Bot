@@ -1,13 +1,13 @@
 :root {
-    --bg-color: #0d1117;
-    --bg-secondary: #161b22;
+    --bg-color: #1c1432;
+    --bg-secondary: rgba(110, 45, 120, 0.15);
     --text-primary: #e6edf3;
-    --text-muted: #8b949e;
-    --accent-color: #38bdf8;
-    --accent-hover: #0ea5e9;
-    --border-color: rgba(255, 255, 255, 0.1);
-    --card-bg: rgba(22, 27, 34, 0.6);
-    --glow-color: rgba(56, 189, 248, 0.15);
+    --text-muted: #a288d9;
+    --accent-color: #6e2d78;
+    --accent-hover: #a288d9;
+    --border-color: rgba(162, 136, 217, 0.2);
+    --card-bg: rgba(28, 20, 50, 0.6);
+    --glow-color: rgba(110, 45, 120, 0.3);
 }
 
 * {
@@ -93,7 +93,7 @@ nav {
 .btn-primary {
     background-color: var(--accent-color);
     color: #fff;
-    box-shadow: 0 4px 15px rgba(56, 189, 248, 0.3);
+    box-shadow: 0 4px 15px rgba(110, 45, 120, 0.4);
 }
 
 .btn-primary:hover {
@@ -171,7 +171,7 @@ nav {
     height: 90px;
     border-radius: 20px;
     margin-bottom: 2rem;
-    box-shadow: 0 0 30px rgba(56, 189, 248, 0.2);
+    box-shadow: 0 0 30px rgba(162, 136, 217, 0.3);
 }
 
 .hero h1 {
@@ -227,7 +227,7 @@ nav {
 
 .card:hover {
     transform: translateY(-5px);
-    border-color: rgba(56, 189, 248, 0.4);
+    border-color: rgba(162, 136, 217, 0.6);
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
 }
 

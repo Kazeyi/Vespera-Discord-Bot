@@ -49,6 +49,7 @@ nav:
     - Current Design: architecture/current.md
     - Planned — Lite MAS: architecture/lite-mas.md
   - Roadmap: roadmap.md
+  - About: about.md
 
 markdown_extensions:
   - admonition

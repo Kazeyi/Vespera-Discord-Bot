@@ -1,15 +1,15 @@
 /* Match the landing page palette */
 :root {
-  --md-primary-fg-color: #38bdf8;
-  --md-primary-fg-color--light: #7dd3fc;
-  --md-primary-fg-color--dark: #0ea5e9;
-  --md-accent-fg-color: #38bdf8;
+  --md-primary-fg-color: #6e2d78;
+  --md-primary-fg-color--light: #a288d9;
+  --md-primary-fg-color--dark: #4b1f52;
+  --md-accent-fg-color: #a288d9;
 }
 
 [data-md-color-scheme="slate"] {
-  --md-default-bg-color: #0d1117;
-  --md-default-bg-color--light: #161b22;
-  --md-code-bg-color: #161b22;
+  --md-default-bg-color: #1c1432;
+  --md-default-bg-color--light: #2c214d;
+  --md-code-bg-color: #2c214d;
 }
 
 /* Slightly tighten nav */
