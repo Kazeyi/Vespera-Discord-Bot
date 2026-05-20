@@ -6,3 +6,9 @@ psutil
 groq
 PyNaCl
 cryptography
+uroman
+langdetect
+pykakasi
+pypinyin
+korean-romanizer
+cachetools

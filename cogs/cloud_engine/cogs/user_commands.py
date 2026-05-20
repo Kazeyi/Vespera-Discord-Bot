@@ -1,3 +1,4 @@
+import asyncio
 """
 User Commands - Cloud provisioning commands for end users
 
@@ -69,8 +70,7 @@ class UserCommands(commands.Cog):
             return
         
         # Start session
-        session = await self.orchestrator.start_session(
-            user_id=interaction.user.id,
+        session = await self.orchestrator.start_session(user_id=interaction.user.id,
             project_id=project,
             provider=provider.lower(),
             ttl_minutes=30

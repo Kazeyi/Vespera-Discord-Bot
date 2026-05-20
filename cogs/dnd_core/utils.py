@@ -1,3 +1,4 @@
+import asyncio
 import sys
 import os
 import discord
@@ -14,7 +15,7 @@ async def validate_dnd_access(i: discord.Interaction) -> bool:
         if hasattr(i.user, "guild_permissions") and i.user.guild_permissions.manage_guild:
             return True
             
-        s = get_dnd_config(i.guild.id)
+        s = await asyncio.to_thread(get_dnd_config, i.guild.id)
         if not s:
             return False
         

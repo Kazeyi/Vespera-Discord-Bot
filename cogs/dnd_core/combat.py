@@ -1,3 +1,4 @@
+import asyncio
 import sys
 import os
 import re
@@ -17,7 +18,7 @@ class CombatTracker:
     @staticmethod
     def get_combat_with_refs(thread_id: int) -> List[Dict]:
         """Get combatants with reference numbers"""
-        combatants = get_combat_order(thread_id)
+        combatants = await asyncio.to_thread(get_combat_order, thread_id)
         result = []
         
         for idx, (uid, name, init, curr_hp, max_hp, is_monster, conditions) in enumerate(combatants, 1):
@@ -42,10 +43,10 @@ class CombatTracker:
         
         for combatant in combatants:
             if combatant["ref"] == ref:
-                new_hp = update_combatant_hp(thread_id, combatant["id"], -damage)
+                new_hp = await asyncio.to_thread(update_combatant_hp, thread_id, combatant["id"], -damage)
                 
                 if new_hp <= 0 and combatant["is_monster"] == 1:
-                    remove_combatant(thread_id, combatant["id"])
+                    await asyncio.to_thread(remove_combatant, thread_id, combatant["id"])
                     combatant["status"] = "defeated"
                 else:
                     combatant["hp"] = new_hp

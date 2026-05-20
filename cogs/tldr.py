@@ -1,3 +1,4 @@
+import asyncio
 """
 ==============================================================================
 TL;DR COG - JSON-OPTIMIZED VERSION  
@@ -95,12 +96,12 @@ class TLDRCog(commands.Cog):
         history = [msg async for msg in channel.history(limit=50, after=message, oldest_first=True)]
         history.insert(0, message)
         
-        vip_role = get_vip_role_id(interaction.guild.id)
+        vip_role = await asyncio.to_thread(get_vip_role_id, interaction.guild.id)
         
         formatted_text = self.format_history(history, vip_role)
         truncated_text = smart_truncate_history(formatted_text)
         
-        lang = get_target_language(interaction.user.id, "English")
+        lang = await asyncio.to_thread(get_target_language, interaction.user.id, "English")
         
         data, used_model = await generate_summary(truncated_text, lang, interaction.guild.id)
         
@@ -146,11 +147,11 @@ class TLDRCog(commands.Cog):
         history = [msg async for msg in interaction.channel.history(limit=limit)]
         history.reverse() 
         
-        vip_role = get_vip_role_id(interaction.guild.id)
+        vip_role = await asyncio.to_thread(get_vip_role_id, interaction.guild.id)
         formatted_text = self.format_history(history, vip_role)
         truncated_text = smart_truncate_history(formatted_text)
         
-        lang = get_target_language(interaction.user.id, "English")
+        lang = await asyncio.to_thread(get_target_language, interaction.user.id, "English")
         
         data, used_model = await generate_summary(truncated_text, lang, interaction.guild.id)
         

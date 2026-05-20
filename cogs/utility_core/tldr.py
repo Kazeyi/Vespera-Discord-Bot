@@ -1,3 +1,4 @@
+import asyncio
 import re
 import os
 import json
@@ -57,7 +58,8 @@ def extract_json(text: str) -> dict:
 
 async def generate_summary(text, lang, guild_id):
     lang = sanitize_input(lang, max_length=50)
-    model = get_server_model_name(guild_id)
+    text = sanitize_input(text, max_length=20000)
+    model = await asyncio.to_thread(get_server_model_name, guild_id)
     
     now_str = datetime.now().strftime("%A, %B %d, %Y")
     

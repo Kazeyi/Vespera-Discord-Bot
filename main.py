@@ -6,6 +6,9 @@ import os
 import gc
 import asyncio
 from dotenv import load_dotenv
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Memory optimization
 gc.set_threshold(400, 5, 5)  # Aggressive GC for low memory
@@ -18,9 +21,9 @@ DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
 try:
     from memory_optimizer import memory_optimizer
     MEMORY_OPTIMIZATION_ENABLED = True
-except:
+except ImportError as e:
     MEMORY_OPTIMIZATION_ENABLED = False
-    print("⚠️ Memory optimizer not available")
+    logger.warning(f"⚠️ Memory optimizer not available: {e}")
 
 # --- CONFIGURATION ---
 # 1. Get your Server ID (Right Click Server Icon -> Copy ID)
@@ -61,21 +64,22 @@ class ModularBot(commands.Bot):
                             f.write(msg + "\n")
                         print(msg)
         
-        # AUTO SYNC LOGIC: Always sync globally for instant command availability
-        try:
-            synced = await self.tree.sync()
-            print(f"🌍 Global Sync: {len(synced)} commands registered globally")
-            print("   ℹ️ Commands available immediately in all servers")
-        except Exception as e:
-            print(f"⚠️ Sync warning: {e}")
+        # AUTO SYNC LOGIC: Disabled to prevent startup race conditions
+        # try:
+        #     synced = await self.tree.sync()
+        #     print(f"🌍 Global Sync: {len(synced)} commands registered globally")
+        #     print("   ℹ️ Commands available immediately in all servers")
+        # except Exception as e:
+        #     print(f"⚠️ Sync warning: {e}")
 
     async def on_tree_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
         if isinstance(error, app_commands.CommandNotFound):
             await interaction.response.send_message("⚠️ **Sync Issue:** Commands are updating. Please wait 1 minute or type `!sync`.", ephemeral=True)
         else:
-            print(f"Tree Error: {error}")
+            logger.error(f"Tree Error: {error}")
             try: await interaction.response.send_message(f"❌ Error: {str(error)[:100]}", ephemeral=True)
-            except: pass
+            except discord.DiscordException as e: 
+                logger.error(f"Failed to send error message: {e}")
 
     async def on_ready(self):
         print(f"🚀 Logged in as {self.user} (ID: {self.user.id})")
@@ -96,6 +100,12 @@ class ModularBot(commands.Bot):
             status=discord.Status.online
         )
     
+    async def on_message(self, message):
+        """Guard against messages arriving before READY (self.user still None)."""
+        if not self.user:
+            return
+        await self.process_commands(message)
+
     async def _periodic_cleanup(self):
         """Periodic memory cleanup (every 15 minutes)"""
         await self.wait_until_ready()
@@ -109,8 +119,9 @@ class ModularBot(commands.Bot):
                 else:
                     gc.collect()
                 
-                # Clear Discord.py cache
-                self._connection.clear()
+                # Clear Discord.py message cache safely
+                if hasattr(self._connection, '_messages') and self._connection._messages is not None:
+                    self._connection._messages.clear()
                 
             except Exception as e:
                 print(f"❌ Cleanup task error: {e}")
@@ -200,8 +211,9 @@ async def cleanup(ctx):
     else:
         gc.collect(2)
     
-    # Clear Discord cache
-    bot._connection.clear()
+    # Clear Discord message cache safely
+    if hasattr(bot._connection, '_messages') and bot._connection._messages is not None:
+        bot._connection._messages.clear()
     
     after_mb = memory_optimizer.get_memory_mb() if MEMORY_OPTIMIZATION_ENABLED else 0
     freed = before_mb - after_mb

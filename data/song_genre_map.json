@@ -1,0 +1,52 @@
+{
+  "yoasobi": {
+    "idol": "upbeat_rap",
+    "yoru ni kakeru": "mid_tempo_rock",
+    "into the night": "mid_tempo_rock",
+    "biri-biri": "upbeat_rap"
+  },
+  "leo/need": {
+    "story": "mid_tempo_rock",
+    "iro": "mid_tempo_rock"
+  },
+  "alexandros": {
+    "koeru": "uplifting_anthem",
+    "starrrrrrr": "uplifting_anthem"
+  },
+  "vivid bad squad": {
+    "fire dance": "upbeat_rap",
+    "e-x-a (extreme party)": "upbeat_rap"
+  },
+  "nadereh": {
+    "旋律にのせた希望": "emotional_ballad"
+  },
+  "zhang yunjing": {
+    "偏愛": "emotional_ballad",
+    "偏爱": "emotional_ballad"
+  },
+  "yuyi": {
+    "攒够失望就离开你": "emotional_ballad"
+  },
+  "iu": {
+    "through the night": "emotional_ballad",
+    "celebrity": "upbeat_rap",
+    "lilac": "mid_tempo_rock"
+  },
+  "taeyeon": {
+    "i": "emotional_ballad",
+    "fine": "emotional_ballad"
+  },
+  "kenshi yonezu": {
+    "lemon": "emotional_ballad",
+    "pale blue": "emotional_ballad",
+    "uma to shika": "upbeat_rap"
+  },
+  "ado": {
+    "usseewa": "upbeat_rap",
+    "new genesis": "uplifting_anthem",
+    "backlight": "emotional_ballad"
+  },
+  "_default_": {
+    "_any_": "balanced"
+  }
+}

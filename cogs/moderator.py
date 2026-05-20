@@ -1,3 +1,4 @@
+import asyncio
 """
 ==============================================================================
 MODERATOR COG - RAM-OPTIMIZED VERSION
@@ -65,7 +66,7 @@ class ModeratorCog(commands.Cog):
         cursor = conn.cursor()
         
         cutoff = time.time() - (24 * 3600)
-        cursor.execute("DELETE FROM message_context_log WHERE timestamp < ?", (cutoff,))
+        cursor.execute("DELETE FROM message_context_log WHERE timestamp < ?", (cutoff))
         
         deleted = cursor.rowcount
         conn.commit()
@@ -128,7 +129,7 @@ class ModeratorCog(commands.Cog):
         if not target_id or str(message.channel.id) == str(target_id):
             return
         ch = self.bot.get_channel(int(target_id))
-        lang_pref = get_target_language(user_id, "English")
+        lang_pref = await asyncio.to_thread(get_target_language, user_id, "English")
         msg_content = f"⚠️ **Redirect: {reason}**\nThis topic belongs in {ch.mention}. Please continue there."
         if "indonesia" in lang_pref.lower() or "bahasa" in lang_pref.lower():
             msg_content = f"⚠️ **Pengalihan: {reason}**\nTopik ini seharusnya dibahas di {ch.mention}. Silakan lanjut di sana ya."
@@ -164,7 +165,7 @@ class ModeratorCog(commands.Cog):
             if len(self.media_spam_tracker[message.author.id]) >= 4 and \
                now - self.media_spam_tracker[message.author.id][0] < 60:
                 if update_rep(message.author.id, message.guild.id, 5) >= 15:
-                    s = get_mod_settings(message.guild.id)
+                    s = await asyncio.to_thread(get_mod_settings, message.guild.id)
                     if s and s[0] and s[1]:
                         await self.trigger_mod_alert(message, 5, "Media Spam Flood.", s[0], s[1],
                                                       "⚠️ Media Spam Alert", "Timeout (1h)")
@@ -173,7 +174,7 @@ class ModeratorCog(commands.Cog):
         if len(message.content) < 4:
             return
 
-        s = get_mod_settings(message.guild.id)
+        s = await asyncio.to_thread(get_mod_settings, message.guild.id)
         if not s or not s[0]:
             return
         
@@ -233,6 +234,7 @@ class ModeratorCog(commands.Cog):
             await self.handle_redirect(message, s[3], "NSFW Content", message.author.id)
 
     @app_commands.command(name="setup_mod", description="Configure Moderation")
+    @app_commands.checks.cooldown(1, 3.0, key=lambda i: i.user.id)
     @app_commands.default_permissions(manage_guild=True)
     async def setup_mod(self, i: discord.Interaction,
                         log_channel: discord.TextChannel = None,
@@ -260,6 +262,7 @@ class ModeratorCog(commands.Cog):
         await i.response.send_message("✅ **Moderation Configuration Updated!**", ephemeral=True)
 
     @app_commands.command(name="my_rep", description="Check your reputation score")
+    @app_commands.checks.cooldown(1, 3.0, key=lambda i: i.user.id)
     async def my_rep(self, i: discord.Interaction):
         conn = sqlite3.connect(DB_FILE)
         c = conn.cursor()
@@ -302,9 +305,10 @@ class ModeratorCog(commands.Cog):
         await interaction.response.send_message(f"✅ updated to **{model.name}**!", ephemeral=True)
 
     @app_commands.command(name="settings", description="View Dashboard")
+    @app_commands.checks.cooldown(1, 3.0, key=lambda i: i.user.id)
     @app_commands.default_permissions(manage_guild=True)
     async def settings(self, interaction: discord.Interaction):
-        s = get_mod_settings(interaction.guild.id)
+        s = await asyncio.to_thread(get_mod_settings, interaction.guild.id)
         if not s:
             return await interaction.response.send_message("Not configured.", ephemeral=True)
         log_id, role_id, pol_id, nsfw_id, game_id, vip_id, context, model = s
@@ -314,9 +318,10 @@ class ModeratorCog(commands.Cog):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(name="test_alert", description="Debug: Force a manual alert")
+    @app_commands.checks.cooldown(1, 3.0, key=lambda i: i.user.id)
     @app_commands.default_permissions(administrator=True)
     async def test_alert(self, interaction: discord.Interaction):
-        settings = get_mod_settings(interaction.guild.id)
+        settings = await asyncio.to_thread(get_mod_settings, interaction.guild.id)
         if not settings:
             return await interaction.response.send_message("❌ Not configured", ephemeral=True)
         log_id = settings[0]

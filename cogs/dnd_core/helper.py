@@ -1,3 +1,4 @@
+import asyncio
 import sys
 import os
 import discord
@@ -11,7 +12,7 @@ async def validate_dnd_access(i):
     try:
         if i.user.guild_permissions.manage_guild:
             return True
-        s = get_dnd_config(i.guild.id)
+        s = await asyncio.to_thread(get_dnd_config, i.guild.id)
         if not s:
             return False
         role_id = s[4] if len(s) > 4 else None
@@ -38,7 +39,7 @@ def get_hp_emoji(curr, max_hp):
         return "🧡"
     return "💔"
 
-def generate_truth_block(action: str, character_data: dict = None, target_data: dict = None, 
+async def generate_truth_block(action: str, character_data: dict = None, target_data: dict = None, 
                         phase: int = 1, guild_id: int = None, location: str = None) -> str:
     """
     Generate a truth block for pre-computed mechanics to prevent hallucinations.

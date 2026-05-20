@@ -4,36 +4,29 @@ import os
 import time
 import json
 import random
+import logging
 from typing import Dict, List, Tuple, Optional, Any
 from discord.ext import commands
+from cachetools import TTLCache
+
+logger = logging.getLogger(__name__)
 
 DB_FILE = os.path.abspath("bot_database.db")
 
 # --- CACHE SYSTEM ---
-_cache = {}
-CACHE_TTL = 60
-MAX_CACHE_SIZE = 100
+_cache = TTLCache(maxsize=2000, ttl=60)
 
 def get_cached(key: str) -> Optional[Any]:
-    """Get item from cache if not expired"""
-    if key in _cache:
-        item = _cache[key]
-        if time.time() - item['time'] < CACHE_TTL:
-            return item['data']
-        else:
-            del _cache[key]
-    return None
+    """Get item from cache"""
+    return _cache.get(key)
 
 def set_cache(key: str, value: Any) -> None:
-    """Set item in cache with TTL"""
-    if len(_cache) >= MAX_CACHE_SIZE:
-        _cache.pop(next(iter(_cache)))
-    _cache[key] = {'data': value, 'time': time.time()}
+    """Set item in cache"""
+    _cache[key] = value
 
 def clear_cache(key: str) -> None:
     """Remove item from cache"""
-    if key in _cache:
-        del _cache[key]
+    _cache.pop(key, None)
 
 def clear_all_cache() -> None:
     """Clear entire cache"""
@@ -469,6 +462,11 @@ class DatabaseManager:
         }
         
         for table_name, expected_columns in tables_to_check.items():
+            # Security: Strict validation against SCHEMA whitelist to prevent SQL injection
+            if table_name not in SCHEMA:
+                print(f"    ⚠️ Security Error: Attempted to migrate unknown table {table_name}")
+                continue
+                
             try:
                 cursor.execute(f"PRAGMA table_info({table_name})")
                 existing_columns = [col[1] for col in cursor.fetchall()]
@@ -493,6 +491,12 @@ class DatabaseManager:
                         else:
                             col_type = "TEXT"
                         
+                        # Security: validate column name format (alphanumeric and underscores only)
+                        import re
+                        if not re.match(r'^[a-zA-Z0-9_]+$', column):
+                            print(f"    ⚠️ Security Error: Invalid column name format {column}")
+                            continue
+
                         try:
                             cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {column} {col_type}")
                             print(f"    ✓ Added column {column} to {table_name}")
@@ -851,9 +855,10 @@ def update_dnd_rulebook(guild_id: int, rulebook: str) -> None:
     clear_cache(f"dnd_config_{guild_id}")
 
 def update_game_mode(guild_id: int, mode: str) -> None:
-    """Update game mode"""
+    """Update game mode, ensuring a config row exists first"""
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
+    c.execute("INSERT OR IGNORE INTO dnd_config (guild_id, created_at) VALUES (?, ?)", (str(guild_id), time.time()))
     c.execute(
         "UPDATE dnd_config SET game_mode=?, updated_at=? WHERE guild_id=?",
         (mode, time.time(), str(guild_id))
@@ -863,9 +868,10 @@ def update_game_mode(guild_id: int, mode: str) -> None:
     clear_cache(f"dnd_config_{guild_id}")
 
 def save_active_party(guild_id: int, user_ids: List[int]) -> None:
-    """Save active party members"""
+    """Save active party members, ensuring a config row exists first"""
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
+    c.execute("INSERT OR IGNORE INTO dnd_config (guild_id, created_at) VALUES (?, ?)", (str(guild_id), time.time()))
     c.execute(
         "UPDATE dnd_config SET active_party=?, updated_at=? WHERE guild_id=?",
         (json.dumps(user_ids), time.time(), str(guild_id))
@@ -875,9 +881,10 @@ def save_active_party(guild_id: int, user_ids: List[int]) -> None:
     clear_cache(f"dnd_config_{guild_id}")
 
 def update_quest_data(guild_id: int, quest_data: Dict) -> None:
-    """Update quest data"""
+    """Update quest data, ensuring a config row exists first"""
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
+    c.execute("INSERT OR IGNORE INTO dnd_config (guild_id, created_at) VALUES (?, ?)", (str(guild_id), time.time()))
     c.execute(
         "UPDATE dnd_config SET quest_data=?, updated_at=? WHERE guild_id=?",
         (json.dumps(quest_data), time.time(), str(guild_id))
@@ -902,7 +909,8 @@ def get_dnd_campaign_data(guild_id: int) -> Tuple[int, List]:
             phase = r[0] if r[0] is not None and r[0] > 0 else 1
             legends_data = json.loads(r[1]) if r[1] else []
             return phase, legends_data
-        except:
+        except json.JSONDecodeError as e:
+            logger.exception("Failed to parse legends JSON in get_dnd_campaign_data")
             return 1, []
     return 1, []
 
@@ -1064,7 +1072,8 @@ def get_session_protagonist(guild_id: int) -> Tuple[Optional[str], int]:
         try:
             char_data = json.loads(r[0])
             return char_data.get('name', 'Unknown'), r[1]
-        except:
+        except json.JSONDecodeError as e:
+            logger.exception("Failed to parse char_data JSON in get_session_protagonist")
             return None, 0
     return None, 0
 
@@ -1228,7 +1237,8 @@ def perform_long_rest_db(thread_id: int, guild_id: int) -> None:
                     "UPDATE dnd_characters SET char_data=?, updated_at=? WHERE user_id=? AND guild_id=?",
                     (json.dumps(data), time.time(), uid, str(guild_id))
                 )
-            except:
+            except Exception as e:
+                logger.exception(f"Failed to update character sheet during long rest for user {uid}")
                 pass
     
     conn.commit()
@@ -1707,7 +1717,8 @@ class DatabaseCog(commands.Cog):
                 c.execute(f"SELECT COUNT(*) FROM {table}")
                 count = c.fetchone()[0]
                 embed.add_field(name=table, value=str(count), inline=True)
-            except:
+            except sqlite3.Error as e:
+                logger.exception(f"Database error while querying count for {table}")
                 embed.add_field(name=table, value="N/A", inline=True)
         
         # Database size
@@ -1798,7 +1809,8 @@ def get_void_cycle_data(guild_id: int) -> Tuple[int, str, int]:
         if result:
             return result[0] or 1, result[1] or "uninitialized", result[2] or 1
         return 1, "uninitialized", 1
-    except:
+    except sqlite3.Error as e:
+        logger.exception(f"Database error in get_generational_state for guild {guild_id}")
         return 1, "uninitialized", 1
 
 async def setup(bot):

@@ -371,6 +371,8 @@ resource "aws_instance" "{name}" {{
             engine = self.safe_str(resource_config.get('engine'), 'postgres')
             engine_version = self.safe_str(resource_config.get('engine_version'), '14')
             allocated_storage = self.safe_str(resource_config.get('allocated_storage'), '20')
+            import secrets
+            db_password = os.environ.get('DEFAULT_VM_PASSWORD', secrets.token_urlsafe(16))
             
             self.add_hcl('db', f'''
 resource "aws_db_instance" "{name}" {{
@@ -381,7 +383,7 @@ resource "aws_db_instance" "{name}" {{
   allocated_storage = {allocated_storage}
   
   username = "admin"
-  password = "ChangeMe123!"  # Use AWS Secrets Manager in production
+  password = "{db_password}"  # Auto-generated or pulled from env
   
   skip_final_snapshot = true
   

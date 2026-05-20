@@ -1778,6 +1778,7 @@ class CloudCog(commands.Cog):
     # --- PROJECT MANAGEMENT ---
     
     @app_commands.command(name="cloud-init", description="Initialize a new cloud project with secure vault handshake")
+    @app_commands.checks.cooldown(1, 3.0, key=lambda i: i.user.id)
     @app_commands.describe(
         provider="Cloud provider (aws, gcp, azure)",
         project_name="Project name (stored in database)",
@@ -1901,6 +1902,7 @@ class CloudCog(commands.Cog):
             )
     
     @app_commands.command(name="cloud-projects", description="List your cloud projects")
+    @app_commands.checks.cooldown(1, 3.0, key=lambda i: i.user.id)
     async def cloud_projects(self, interaction: discord.Interaction):
         """List user's cloud projects"""
         await interaction.response.defer(ephemeral=True)
@@ -2019,6 +2021,7 @@ class CloudCog(commands.Cog):
         await interaction.followup.send(embed=embed, view=view)
     
     @app_commands.command(name="cloud-deploy", description="Deploy cloud infrastructure via interactive lobby")
+    @app_commands.checks.cooldown(1, 3.0, key=lambda i: i.user.id)
     @app_commands.describe(
         project_id="Project ID to deploy to",
         resource_type="Type of resource to deploy",
@@ -2184,6 +2187,7 @@ class CloudCog(commands.Cog):
     # --- RESOURCE MANAGEMENT ---
     
     @app_commands.command(name="cloud-list", description="List deployed cloud resources")
+    @app_commands.checks.cooldown(1, 3.0, key=lambda i: i.user.id)
     @app_commands.describe(project_id="Project ID to list resources for")
     async def cloud_list(self, interaction: discord.Interaction, project_id: str):
         """List deployed resources in a project"""
@@ -2309,6 +2313,7 @@ class CloudCog(commands.Cog):
         await interaction.followup.send(embed=embed, view=view)
     
     @app_commands.command(name="cloud-quota", description="Check quota usage for a project")
+    @app_commands.checks.cooldown(1, 3.0, key=lambda i: i.user.id)
     @app_commands.describe(project_id="Project ID to check quotas for")
     async def cloud_quota(self, interaction: discord.Interaction, project_id: str):
         """Check quota usage"""
@@ -2697,6 +2702,7 @@ class CloudCog(commands.Cog):
     # --- TERRAFORM VALIDATION ---
     
     @app_commands.command(name="cloud-validate", description="Validate terraform configuration with AI analysis")
+    @app_commands.checks.cooldown(1, 3.0, key=lambda i: i.user.id)
     @app_commands.describe(
         session_id="Deployment session ID to validate"
     )
@@ -2836,6 +2842,7 @@ class CloudCog(commands.Cog):
     # --- MONITORING & HEALTH ---
     
     @app_commands.command(name="cloud-health", description="Check cloud cog health status")
+    @app_commands.checks.cooldown(1, 3.0, key=lambda i: i.user.id)
     async def cloud_health(self, interaction: discord.Interaction):
         """Display cog health metrics"""
         await interaction.response.defer(ephemeral=True)
@@ -3433,6 +3440,7 @@ class CloudCog(commands.Cog):
     
     @app_commands.command(name="cloud-blueprint-download", 
                          description="Download a generated blueprint")
+    @app_commands.checks.cooldown(1, 3.0, key=lambda i: i.user.id)
     @app_commands.describe(
         token="Download token from /cloud-blueprint"
     )
@@ -3524,6 +3532,7 @@ class CloudCog(commands.Cog):
     
     @app_commands.command(name="cloud-blueprint-status", 
                          description="Check status of your blueprints")
+    @app_commands.checks.cooldown(1, 3.0, key=lambda i: i.user.id)
     async def cloud_blueprint_status(
         self,
         interaction: discord.Interaction

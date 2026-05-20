@@ -113,8 +113,7 @@ async def custom_deploy(interaction: discord.Interaction, project: str):
     '''Custom deployment workflow'''
     
     # Start session
-    session = await orchestrator.start_session(
-        user_id=interaction.user.id,
+    session = await orchestrator.start_session(user_id=interaction.user.id,
         project_id=project,
         provider='gcp'
     )

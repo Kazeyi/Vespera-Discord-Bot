@@ -1,3 +1,4 @@
+import asyncio
 import sqlite3
 import time
 import random
@@ -199,7 +200,7 @@ class DestinyManager:
     @staticmethod
     def check_destiny_triggers(guild_id: int, user_id: int) -> List[str]:
         """Check if destiny score triggers any milestones"""
-        char = get_character(user_id, guild_id)
+        char = await asyncio.to_thread(get_character, user_id, guild_id)
         if not char or 'destiny_roll' not in char:
             return []
         
@@ -215,7 +216,7 @@ class DestinyManager:
                     if 'milestones' not in char:
                         char['milestones'] = []
                     char['milestones'].append(milestone_key)
-                    update_character(user_id, guild_id, char)
+                    await asyncio.to_thread(update_character, user_id, guild_id, char)
         
         return triggers
 

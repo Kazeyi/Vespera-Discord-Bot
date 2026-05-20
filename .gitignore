@@ -40,5 +40,22 @@ ENV/
 *.tfstate
 *.tfstate.backup
 
+# Antigravity IDE
+.agents/
+
+
 # Logs
 *.log
+
+# Testing Cache
+.pytest_cache/
+
+# Lyrical Knowledge Base
+knowledge_base/
+
+# Runtime Generated Downloads
+blueprint_downloads/
+
+# Developer Local Backups
+archive/
+*.backup

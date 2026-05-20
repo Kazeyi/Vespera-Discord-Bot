@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 # Import optimizations
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from global_optimization import intern_string, enable_wal_mode
-from database import DB_FILE
+from database import *
 
 from .utility_core.personality import VesperaPersonality as VP
 
@@ -28,7 +28,7 @@ load_dotenv()
 GROQ_CLIENT = Groq(api_key=os.getenv("GROQ_API_KEY"))
 FAST_MODEL = "llama-3.3-70b-versatile"
 try:
-    from cogs.dnd_core.constants import ZONE_TAGS
+    from cogs.dnd_core.constants import ZONE_TAGS, LOCATION_THEMES
     from cogs.dnd_core.models import (
         VoidCyclePhase, SpecializationPath, PhaseManager, BloodlineManager, 
         SessionModeManager, UniquePointSystem, AuraAccelerationSystem, SystematicSorcerySystem
@@ -45,7 +45,7 @@ try:
 except ImportError:
     try:
         # Fallback for when running as a module where relative imports work (standard bot execution)
-        from .dnd_core.constants import ZONE_TAGS
+        from .dnd_core.constants import ZONE_TAGS, LOCATION_THEMES
         from .dnd_core.models import (
             VoidCyclePhase, SpecializationPath, PhaseManager, BloodlineManager, 
             SessionModeManager, UniquePointSystem, AuraAccelerationSystem, SystematicSorcerySystem
@@ -64,6 +64,545 @@ except ImportError:
         raise e
     # Fallback to local definitions will happen if deletions fail, but better to fail hard if we are refactoring.
     
+# --- UI VIEWS ---
+# --- OPTIMIZED NPC GENERATOR ---
+class NPCNameGenerator:
+    """Optimized name generator"""
+    
+    SIMPLE_THEMES = {
+        "ocean": ["Aqua", "Mar", "Tidal", "Coral", "Wave", "Deep", "Salt"],
+        "volcano": ["Ignis", "Pyro", "Magma", "Ash", "Flame", "Ember"],
+        "desert": ["Sand", "Dune", "Sun", "Oasis", "Mirage", "Dust"]
+    }
+    
+    SIMPLE_TITLES = [
+        "the Brave", "the Wise", "the Fierce", "the Cunning", 
+        "the Ancient", "the Young", "the Scarred", "the Silent"
+    ]
+    
+    @staticmethod
+    def generate_name(theme: str, npc_type: str = "guardian") -> str:
+        """Generate simple, thematic NPC names"""
+        themes = NPCNameGenerator.SIMPLE_THEMES.get(theme, NPCNameGenerator.SIMPLE_THEMES["ocean"])
+        prefix = random.choice(themes)
+        
+        if npc_type == "boss":
+            suffixes = ["lord", "king", "tyrant", "heart", "wrath"]
+            suffix = random.choice(suffixes)
+            return f"{prefix}{suffix.capitalize()}"
+        elif npc_type == "miniboss":
+            descriptors = ["Hunter", "Warden", "Sentinel", "Champion"]
+            descriptor = random.choice(descriptors)
+            return f"{prefix}{descriptor}"
+        else:
+            guardian_types = ["Valiant", "Stalwart", "Vigilant", "Dauntless"]
+            guardian_type = random.choice(guardian_types)
+            return f"{guardian_type} {prefix}warden"
+
+# --- CONQUEST PATHS ---
+CONQUEST_PATHS = {
+    "ocean": {
+        "p1": {"name": "Leviathan Conquest", "mini": "Kraken", "boss": "Leviathan", "theme": "ocean"},
+        "p2": {"name": "Abyssal Return", "mini": "Jormungandr", "boss": "Tiamat", "theme": "ocean"}
+    },
+    "volcano": {
+        "p1": {"name": "Red Dragon Conquest", "mini": "Griffith", "boss": "Red Dragon", "theme": "volcano"},
+        "p2": {"name": "Infernal Legacy", "mini": "Nidhogg", "boss": "Apep", "theme": "volcano"}
+    },
+    "desert": {
+        "p1": {"name": "Grootslag Conquest", "mini": "Sandworm", "boss": "Grootslag", "theme": "desert"},
+        "p2": {"name": "Sands of Time", "mini": "Hydra", "boss": "Fenrir", "theme": "desert"}
+    }
+}
+
+
+class SessionLobbyView(discord.ui.View):
+    """Optimized lobby with 12 guardians system"""
+    
+    def __init__(self, bot_cog, interaction, phase, has_save, initial_party=None, quest_title="Adventure", legends=None):
+        super().__init__(timeout=300)
+        self.bot_cog = bot_cog
+        self.host_id = interaction.user.id
+        self.phase = phase
+        self.has_save = has_save
+        self.joined_users = list(initial_party) if initial_party else [interaction.user.id]
+        self.quest_title = quest_title
+        self.legends = legends or []
+        self.rulebook = "5e 2024"
+        self.guild_id = interaction.guild.id
+        
+        if self.has_save:
+            for child in self.children:
+                if hasattr(child, 'label') and child.label in ("Join", "Leave"):
+                    child.disabled = True
+                if isinstance(child, discord.ui.Select):
+                    child.disabled = True
+    
+    async def update_embed(self):
+        """Create optimized embed"""
+        description = f"**{self.quest_title}**\nRules: {self.rulebook}\n\n**Party ({len(self.joined_users)}/12):**\n"
+        
+        for user_id in self.joined_users:
+            char = await asyncio.to_thread(get_character, user_id, self.guild_id)
+            if char:
+                hp_viz = get_hp_emoji(char.get('hp', 0), char.get('max_hp', 1))
+                description += f"• {hp_viz}<@{user_id}> ({char.get('name', 'Unknown')})\n"
+            else:
+                description += f"• <@{user_id}>\n"
+        
+        if self.phase > 1 and self.legends:
+            description += f"\n**Legends (Survivors):** {len(self.legends)}"
+        
+        embed = discord.Embed(
+            title="🎲 D&D Session Lobby",
+            description=description,
+            color=0x3498db
+        )
+        embed.set_footer(text="Vespera // The stage is set")
+        return embed
+    
+    @discord.ui.button(label="Join", style=discord.ButtonStyle.success, row=0)
+    async def join_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not await validate_dnd_access(interaction):
+            return
+        
+        if self.phase > 1:
+            legend_ids = [l.get('id') for l in self.legends if isinstance(l, dict) and not str(l.get('id', '')).startswith("npc_")]
+            if interaction.user.id not in legend_ids:
+                await interaction.response.send_message("⛔ Only survivors from Phase 1 may join.", ephemeral=True)
+                return
+        
+        if interaction.user.id not in self.joined_users:
+            self.joined_users.append(interaction.user.id)
+            await interaction.response.edit_message(embed=await self.update_embed(), view=self)
+    
+    @discord.ui.button(label="Leave", style=discord.ButtonStyle.secondary, row=0)
+    async def leave_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id in self.joined_users:
+            self.joined_users.remove(interaction.user.id)
+            await interaction.response.edit_message(embed=await self.update_embed(), view=self)
+    
+    @discord.ui.button(label="Launch Session", style=discord.ButtonStyle.primary, row=1)
+    async def launch_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.host_id:
+            await interaction.response.send_message("⛔ Only the host can launch the session.", ephemeral=True)
+            return
+        
+        await interaction.response.defer()
+        
+        await asyncio.to_thread(save_active_party, interaction.guild.id, self.joined_users)
+        
+        rolls = {}
+        for user_id in self.joined_users:
+            if not str(user_id).startswith("npc_"):
+                rolls[user_id] = random.randint(1, 100)
+            else:
+                rolls[user_id] = random.randint(1, 50)
+        
+        if len(self.joined_users) == 1:
+            rolls[self.joined_users[0]] = 100
+        
+        await asyncio.to_thread(batch_update_destiny, interaction.guild.id, rolls)
+        
+        if self.phase == 1 and len(self.joined_users) < 12 and not self.has_save:
+            fill_count = 12 - len(self.joined_users)
+            config = await asyncio.to_thread(get_dnd_config, interaction.guild.id)
+            try:
+                quest_data = json.loads(config[10]) if config and config[10] else {"theme": "ocean"}
+                if isinstance(quest_data, str):
+                    quest_data = {"theme": quest_data}
+            except Exception:
+                quest_data = {"theme": "ocean"}
+            
+            theme = quest_data.get('theme', 'ocean') if isinstance(quest_data, dict) else 'ocean'
+            
+            for i in range(fill_count):
+                npc_id = f"npc_guardian_{i}"
+                guardian_name = NPCNameGenerator.generate_name(theme, "guardian")
+                
+                await asyncio.to_thread(update_character, npc_id, interaction.guild.id, {
+                    "name": guardian_name,
+                    "hp": 30,
+                    "max_hp": 30,
+                    "ac": 15,
+                    "is_npc": True,
+                    "guardian_type": "Guardian"
+                })
+                
+                await asyncio.to_thread(update_character_destiny, npc_id, interaction.guild.id, max(0, max(rolls.values()) - random.randint(10, 30)))
+                
+                await asyncio.to_thread(add_combatant, interaction.channel.id,
+                    npc_id,
+                    guardian_name,
+                    random.randint(8, 12),
+                    30, 30,
+                    is_monster=2
+                )
+            
+            guardian_embed = discord.Embed(
+                title="🛡️ Guardians Manifest",
+                description=f"{fill_count} spectral guardians join your party to fulfill the prophecy of 12.",
+                color=0x9B59B6
+            )
+            await interaction.followup.send(embed=guardian_embed)
+        
+        if rolls:
+            roll_text = "\n".join([f"<@{uid}>: **{roll}**" for uid, roll in rolls.items() if not str(uid).startswith("npc_")])
+            destiny_embed = discord.Embed(
+                title="🔮 Destiny Rolls",
+                description=roll_text,
+                color=0x9B59B6
+            )
+            destiny_embed.set_footer(text="Higher roll = Greater narrative weight")
+            await interaction.followup.send(embed=destiny_embed)
+        
+        await self.bot_cog.launch_game_logic(interaction, self.phase, self.rulebook)
+        
+        for child in self.children:
+            child.disabled = True
+        
+        try:
+            await interaction.message.edit(view=self)
+        except Exception as e:
+
+            print(f"Exception caught: {e}")
+            pass
+
+class DNDGameView(discord.ui.View):
+    """Optimized in-game action view"""
+    
+    def __init__(self, bot_cog, interaction, roll_needed=None, roll_reason=None, suggestions=None, rulebook="5e 2024", has_heroic_inspiration=False):
+        super().__init__(timeout=180)
+        self.bot_cog = bot_cog
+        self.interaction = interaction
+        self.roll_needed = roll_needed
+        self.roll_reason = roll_reason
+        self.rulebook = rulebook
+        self.has_heroic_inspiration = has_heroic_inspiration
+        
+        if suggestions and len(suggestions) > 0:
+            options = []
+            for i, suggestion in enumerate(suggestions[:4]):
+                options.append(discord.SelectOption(
+                    label=suggestion[:45],
+                    value=str(i),
+                    description=suggestion[46:95] if len(suggestion) > 45 else None
+                ))
+            
+            select = discord.ui.Select(
+                placeholder="Choose an action...",
+                options=options,
+                row=0
+            )
+            select.callback = self.on_action_select
+            self.add_item(select)
+        
+        if roll_needed and roll_reason:
+            button = discord.ui.Button(
+                label=f"🎲 {roll_reason[:20]}",
+                style=discord.ButtonStyle.primary,
+                emoji="⚡",
+                row=1
+            )
+            button.callback = self.on_roll_button
+            self.add_item(button)
+        
+        action_btn = discord.ui.Button(
+            label="⚔️ Take Action",
+            style=discord.ButtonStyle.success,
+            row=1
+        )
+        action_btn.callback = self.on_action_button
+        self.add_item(action_btn)
+        
+        if "2024" in rulebook and has_heroic_inspiration:
+            insp_btn = discord.ui.Button(
+                label="✨ Use Inspiration",
+                style=discord.ButtonStyle.secondary,
+                row=2
+            )
+            insp_btn.callback = self.on_inspiration_button
+            self.add_item(insp_btn)
+    
+    async def on_action_select(self, interaction: discord.Interaction):
+        if interaction.data and 'values' in interaction.data:
+            selected = interaction.data['values'][0]
+            await self.bot_cog.run_dnd_turn(interaction, f"Action: {selected}", already_deferred=False)
+    
+    async def on_roll_button(self, interaction: discord.Interaction):
+        if self.roll_needed and self.roll_reason:
+            await self.bot_cog.run_dnd_turn(interaction, f"Roll: {self.roll_reason} [{self.roll_needed}]", already_deferred=False)
+    
+    async def on_action_button(self, interaction: discord.Interaction):
+        await interaction.response.send_modal(ActionModal(self.bot_cog))
+    
+    async def on_inspiration_button(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        char = await asyncio.to_thread(get_character, interaction.user.id, interaction.guild.id)
+        if char and char.get('heroic_inspiration', False):
+            char['heroic_inspiration'] = False
+            await asyncio.to_thread(update_character, interaction.user.id, interaction.guild.id, char)
+            await self.bot_cog.run_dnd_turn(
+                interaction, 
+                f"I use Heroic Inspiration to reroll! {self.roll_reason or 'Check'}"
+            )
+
+class ActionModal(discord.ui.Modal, title="Describe Your Action"):
+    action = discord.ui.TextInput(
+        label="What do you do?",
+        placeholder="I attack the goblin, I search the room, I cast a spell...",
+        style=discord.TextStyle.paragraph,
+        max_length=300,
+        required=True
+    )
+    
+    def __init__(self, bot_cog):
+        super().__init__()
+        self.bot_cog = bot_cog
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        await self.bot_cog.run_dnd_turn(interaction, self.action.value)
+
+
+
+# === MISSING CONSTANTS (restored) ===
+
+LOCATION_THEMES = {
+    "combat": 0xE74C3C, "forest": 0x2ECC71, "dungeon": 0x34495E,
+    "tavern": 0xF1C40F, "boss": 0x000000, "city": 0x3498DB,
+    "ocean": 0x3498DB, "desert": 0xE67E22, "volcano": 0xC0392B, "mountain": 0x95A5A6
+}
+
+
+VOID_CYCLE_BIOMES = {
+    "ocean": {
+        "theme": "ocean", "color": 0x3498DB,
+        "p1": {"mini": "Kraken", "boss": "Leviathan"},
+        "p2": {"mini": "Jormungandr", "boss": "Cetus"},
+        "p3": {"echo": "Echo Leviathan", "void": "The Abyssal Singularity"}
+    },
+    "volcano": {
+        "theme": "volcano", "color": 0xC0392B,
+        "p1": {"mini": "Fire Drake", "boss": "Red Dragon"},
+        "p2": {"mini": "Nidhogg", "boss": "Magma Titan"},
+        "p3": {"echo": "Echo Red Dragon", "void": "The Eternal Cinder"}
+    },
+    "desert": {
+        "theme": "desert", "color": 0xE67E22,
+        "p1": {"mini": "Sandworm", "boss": "Grootslag"},
+        "p2": {"mini": "Behemoth", "boss": "Elder Sphinx"},
+        "p3": {"echo": "Echo Grootslag", "void": "The Entropy Siphon"}
+    },
+    "forest": {
+        "theme": "forest", "color": 0x2ECC71,
+        "p1": {"mini": "Giant Spider", "boss": "Leshy"},
+        "p2": {"mini": "Green Dragon", "boss": "World-Root"},
+        "p3": {"echo": "Echo Leshy", "void": "The Withered Heart"}
+    },
+    "tundra": {
+        "theme": "tundra", "color": 0x7FB3D5,
+        "p1": {"mini": "Yeti", "boss": "Frost Giant"},
+        "p2": {"mini": "Cryo-Hydra", "boss": "Rime-Worm"},
+        "p3": {"echo": "Echo Frost Giant", "void": "The Absolute Zero"}
+    },
+    "sky": {
+        "theme": "sky", "color": 0x85C1E9,
+        "p1": {"mini": "Wyvern", "boss": "Storm Roc"},
+        "p2": {"mini": "Quetzalcoatl", "boss": "Sky-Shatterer"},
+        "p3": {"echo": "Echo Storm Roc", "void": "The Void Horizon"}
+    }
+}
+
+
+class AutomaticToneShifter:
+    """Automatically shifts tone based on scene context in Architect Mode"""
+    
+    TONE_PROMPTS = {
+        "Standard": "High-fantasy adventure with balanced humor and tension.",
+        "Gritty": "Visceral, brutal combat. Focus on consequences and scars.",
+        "Dramatic": "Epic, cinematic moments. High emotional stakes.",
+        "Melancholy": "Poetic focus on decay, loss, and the passage of time.",
+        "Mysterious": "Vague, unsettling. NPCs speak in riddles and omens.",
+        "Humorous": "Light-hearted banter and clever wordplay."
+    }
+    
+    @staticmethod
+    def get_automatic_tone(scene_context: str) -> str:
+        """Architect Mode: Automatically shifts tone based on scenario"""
+        if "combat_start" in scene_context.lower():
+            return "Gritty"
+        elif "boss_defeat" in scene_context.lower():
+            return "Dramatic"
+        elif "time_skip" in scene_context.lower():
+            return "Melancholy"
+        elif "boss_appear" in scene_context.lower():
+            return "Mysterious"
+        elif "npc_meeting" in scene_context.lower():
+            return "Humorous"
+        return "Standard"
+    
+    @staticmethod
+    def get_tone_context(tone: str) -> str:
+        """Get the narrative context for a tone"""
+        return AutomaticToneShifter.TONE_PROMPTS.get(tone, AutomaticToneShifter.TONE_PROMPTS["Standard"])
+
+# --- DYNAMIC CHRONOS ENGINE (Randomized Time Skips) ---
+
+
+def _format_action_economy(action, character_data):
+    lines = []
+    action_validation = ActionEconomyValidator.validate_action_economy(action, character_data)
+    if not action_validation['is_valid']:
+        lines.append("[ACTION ECONOMY VIOLATION]")
+        lines.append(f"WARNING: {action_validation['warning']}")
+        lines.append("")
+        lines.append("ENFORCEMENT RULE:")
+        lines.append(action_validation['enforcement_instruction'])
+        lines.append("")
+        total_actions = action_validation.get('action_count', 0) + action_validation.get('bonus_action_count', 0) + action_validation.get('reaction_count', 0)
+        lines.append(f"Actions Attempted: {total_actions} ({action_validation.get('action_count', 0)} Action, {action_validation.get('bonus_action_count', 0)} Bonus)")
+        lines.append(f"Legal Limit: 1 Action + 1 Bonus Action + 1 Reaction")
+        lines.append("")
+    else:
+        lines.append("[ACTION ECONOMY - VALID]")
+        lines.append(f"Actions: {action_validation.get('action_count', 0)}/1")
+        lines.append(f"Bonus Actions: {action_validation.get('bonus_action_count', 0)}/1")
+        lines.append(f"Reactions: {action_validation.get('reaction_count', 0)}/1")
+        lines.append("Player is within legal action economy.")
+        lines.append("")
+    return lines
+
+def _format_world_state(location):
+    lines = []
+    if location:
+        zone_key = location.lower()
+        if zone_key in ZONE_TAGS:
+            zone = ZONE_TAGS[zone_key]
+            lines.append(f"[ZONE TAG]: {zone['name']}")
+            lines.append(f"{zone['description']}")
+            lines.append("Include environment effects in narration and ask for saves as needed.")
+            lines.append("")
+    return lines
+
+async def _format_legacy_haunting(phase, guild_id):
+    lines = []
+    if phase == 3 and guild_id:
+        try:
+            from database import get_legacy_data
+            legacy = await asyncio.to_thread(get_legacy_data, guild_id)
+            if legacy:
+                legacy_names = []
+                if isinstance(legacy, list):
+                    legacy_names = [l.get('name', 'Unknown Hero') for l in legacy if l.get('name')]
+                elif isinstance(legacy, dict):
+                    legacy_names = [legacy.get('name', 'Unknown Hero')]
+                if legacy_names:
+                    import random
+                    haunting_hero = random.choice(legacy_names)
+                    lines.append(f"[LEGACY ECHO]: {haunting_hero}")
+                    lines.append(f"This hero's memory is strong here. Work a small reference to them into the narration.")
+                    lines.append("")
+        except Exception:
+            pass
+    return lines
+
+def _format_combat(action_lower, character_data, target_data):
+    lines = []
+    attack_keywords = ["attack", "hit", "strike", "smash", "slash", "shoot"]
+    if any(keyword in action_lower for keyword in attack_keywords):
+        attack_bonus = character_data.get('attack_bonus', 0) if character_data else 0
+        target_ac = target_data.get('ac', 15) if target_data else 15
+        char_conditions = character_data.get('conditions', '') if character_data else ''
+        target_conditions = target_data.get('conditions', '') if target_data else ''
+        combined_conditions = f"{char_conditions} {target_conditions}"
+        
+        attack_result = PrecomputationEngine.compute_attack_result(attack_bonus, target_ac, combined_conditions)
+        
+        lines.append(f"[ATTACK RESULT]")
+        if attack_result['roll_type'] != "NORMAL":
+            lines.append(f"Roll Type: {attack_result['roll_type']}")
+            lines.append(f"Rolls: {attack_result['all_rolls']} -> Selected: {attack_result['natural_roll']}")
+        else:
+            lines.append(f"Natural Roll: {attack_result['natural_roll']}")
+        lines.append(f"Total (with +{attack_bonus}): {attack_result['total_roll']}")
+        lines.append(f"Target AC: {target_ac}")
+        lines.append(f"Outcome: {attack_result['status']}")
+        
+        if attack_result['status'] in ["HIT", "CRITICAL_HIT"]:
+            damage_dice = character_data.get('damage_dice', '1d8') if character_data else '1d8'
+            damage_bonus = character_data.get('damage_bonus', 0) if character_data else 0
+            is_crit = attack_result['status'] == "CRITICAL_HIT"
+            
+            damage_result = PrecomputationEngine.compute_damage(f"{damage_dice}+{damage_bonus}", is_crit)
+            
+            lines.append(f"[DAMAGE RESULT]")
+            if is_crit:
+                lines.append(f"CRITICAL HIT: Dice doubled, modifier NOT doubled")
+                lines.append(f"Original: {damage_result['original_dice']} -> Crit: {damage_result['dice_string']}")
+            lines.append(f"Dice Rolled: {damage_result['dice_string']}")
+            lines.append(f"Individual Rolls: {damage_result['individual_rolls']}")
+            lines.append(f"Base Modifier: +{damage_result['modifier']} (NOT DOUBLED)")
+            lines.append(f"Total Damage: {damage_result['total']}")
+    return lines
+
+def _format_saves_and_spells(action_lower, character_data):
+    lines = []
+    check_keywords = ["check", "save", "save against", "resist", "test"]
+    for keyword in check_keywords:
+        if keyword in action_lower:
+            abilities = ["strength", "dexterity", "constitution", "intelligence", "wisdom", "charisma"]
+            ability_found = next((ab for ab in abilities if ab in action_lower), None)
+            dc = 15
+            save_bonus = character_data.get(f'{ability_found}_mod', 0) if character_data and ability_found else 0
+            save_result = PrecomputationEngine.compute_saving_throw(dc, save_bonus)
+            
+            lines.append(f"[SAVING THROW RESULT]")
+            lines.append(f"Ability: {ability_found or 'Unknown'}")
+            lines.append(f"Natural Roll: {save_result['natural_roll']}")
+            lines.append(f"Total (with +{save_bonus}): {save_result['total']}")
+            lines.append(f"DC: {dc}")
+            lines.append(f"Success: {save_result['success']}")
+            break
+            
+    spell_keywords = ["cast", "spell", "magic", "incantation"]
+    if any(keyword in action_lower for keyword in spell_keywords):
+        for level in range(1, 10):
+            if f"level {level}" in action_lower or f"{level}st" in action_lower or f"{level}nd" in action_lower or f"{level}rd" in action_lower or f"{level}th" in action_lower:
+                lines.append(f"[SPELL CASTING]")
+                lines.append(f"Spell Level: {level}")
+                lines.append(f"Concentration Required: {'Yes' if level >= 1 else 'No'}")
+                break
+    return lines
+
+async def generate_truth_block(action: str, character_data: dict = None, target_data: dict = None, 
+                        phase: int = 1, guild_id: int = None, location: str = None) -> str:
+    truth_lines = []
+    truth_lines.extend(["=" * 60, "GAME ENGINE TRUTH BLOCK - USE THESE EXACT VALUES", "=" * 60, ""])
+    
+    truth_lines.extend(_format_action_economy(action, character_data))
+    truth_lines.extend(_format_world_state(location))
+    truth_lines.extend(await _format_legacy_haunting(phase, guild_id))
+    
+    action_lower = action.lower()
+    truth_lines.extend(_format_combat(action_lower, character_data, target_data))
+    truth_lines.extend(_format_saves_and_spells(action_lower, character_data))
+    
+    if character_data:
+        truth_lines.extend([f"[CHARACTER STATUS]", f"Current HP: {character_data.get('hp', '?')}/{character_data.get('max_hp', '?')}", f"AC: {character_data.get('ac', '?')}"])
+        if character_data.get('conditions'):
+            truth_lines.append(f"Conditions: {character_data.get('conditions')}")
+    if target_data:
+        truth_lines.extend([f"[TARGET STATUS]", f"Target Name: {target_data.get('name', 'Unknown')}", f"Target HP: {target_data.get('hp', '?')}/{target_data.get('max_hp', '?')}", f"Target AC: {target_data.get('ac', '?')}"])
+    
+    truth_lines.extend(["=" * 60, "END TRUTH BLOCK - DO NOT DEVIATE FROM THESE VALUES", "=" * 60, ""])
+    return "\n".join(truth_lines)
+
+
+# --- TRUTH BLOCK ACCURACY LOGGER ---
+
+# === END RESTORED ===
+
 class DNDCog(commands.Cog):
     """Unified D&D Cog with 2024 rules only"""
     
@@ -76,7 +615,9 @@ class DNDCog(commands.Cog):
         # Initialize DB with WAL mode (Optimization)
         try:
             enable_wal_mode(DB_FILE)
-        except:
+        except Exception as e:
+
+            print(f"Exception caught: {e}")
             pass
             
         RulebookRAG.init_rulebook_table()
@@ -86,7 +627,9 @@ class DNDCog(commands.Cog):
         if not discord.opus.is_loaded():
             try:
                 discord.opus.load_opus('libopus.so.0')
-            except:
+            except Exception as e:
+
+                print(f"Exception caught: {e}")
                 pass
         
         # Start background optimization tasks
@@ -219,18 +762,23 @@ class DNDCog(commands.Cog):
             if not isinstance(channel, discord.Thread):
                 return False, "❌ Not a D&D thread", None
             
-            config = get_dnd_config(guild_id)
+            config = await asyncio.to_thread(get_dnd_config, guild_id)
             if not config:
-                return False, "❌ D&D not configured", None
+                return False, "❌ D&D not configured. Run `/setup_dnd` first.", None
             
-            if int(config[0]) != channel.parent_id:
-                return False, "❌ Invalid thread channel", None
+            # config[0] can be NULL if game state was written before setup_dnd ran
+            parent_channel_id = config[0]
+            if not parent_channel_id:
+                return False, "❌ D&D channel not set. Run `/setup_dnd` to assign a channel.", None
+            
+            if int(parent_channel_id) != channel.parent_id:
+                return False, "❌ This thread is not in the configured D&D channel.", None
             
             return True, config[1], config[2], config[3], config[4], "5e 2024", config[6], config[9] or "Narrative"
         
         except Exception as e:
             print(f"[DND] Validation error: {e}")
-            return False, "❌ Configuration error", None
+            return False, "❌ Configuration error. Try `/setup_dnd` again.", None
     
     async def get_dm_response(self, action: str, thread_id: int, location: str, summary: str, 
                             stats: str, guild_id: int, rulebook: str, mode: str, has_heroic_inspiration: bool, 
@@ -244,10 +792,12 @@ class DNDCog(commands.Cog):
         
         # Get session mode to determine if automatic tone shifting is enabled
         try:
-            session_mode_data = get_session_mode(guild_id)
+            session_mode_data = await asyncio.to_thread(get_session_mode, guild_id)
             session_mode = session_mode_data[0] if session_mode_data else SessionModeManager.ARCHITECT
             current_tone = session_mode_data[1] if session_mode_data and len(session_mode_data) > 1 else "Standard"
-        except:
+        except Exception as e:
+
+            print(f"Exception caught: {e}")
             # Table might not exist yet during migration, use defaults
             session_mode = SessionModeManager.ARCHITECT
             current_tone = "Standard"
@@ -271,13 +821,13 @@ class DNDCog(commands.Cog):
         char = None
         attack_result_data = None  # Store for dice reveal embed
         if user_id:
-            char = get_character(user_id, guild_id)
+            char = await asyncio.to_thread(get_character, user_id, guild_id)
         
         # Get campaign phase for truth block generation
-        phase, _ = get_dnd_campaign_data(guild_id)
+        phase, _ = await asyncio.to_thread(get_dnd_campaign_data, guild_id)
         
         # Generate truth block with pre-computation (includes phase 3 legacy haunting and zone tags)
-        truth_block = generate_truth_block(action, char, phase=phase, guild_id=guild_id, location=location)
+        truth_block = await generate_truth_block(action, char, phase=phase, guild_id=guild_id, location=location)
         
         # Extract attack result from truth block if it exists (for dice reveal)
         if "[ATTACK RESULT]" in truth_block:
@@ -326,13 +876,13 @@ class DNDCog(commands.Cog):
         history = HistoryManager.get_optimized_history(thread_id, limit=6)
         context = "\n".join([f"{role}: {content[:100]}" for role, content in history])
         
-        combatants = get_combat_order(thread_id)
+        combatants = await asyncio.to_thread(get_combat_order, thread_id)
         combat_text = "\n".join([
             f"{get_hp_emoji(hp, max_hp)} {name} ({hp}/{max_hp})" 
             for _, name, _, hp, max_hp, _, _ in combatants[:5]
         ]) if combatants else "No active combat."
         
-        protagonist, destiny_score = get_session_protagonist(guild_id)
+        protagonist, destiny_score = await asyncio.to_thread(get_session_protagonist, guild_id)
         
         # Get tone context for prompt
         tone_context = AutomaticToneShifter.get_tone_context(current_tone)
@@ -341,7 +891,7 @@ class DNDCog(commands.Cog):
         quest_name = "Unknown"
         quest_theme = location
         try:
-            cfg = get_dnd_config(guild_id)
+            cfg = await asyncio.to_thread(get_dnd_config, guild_id)
             if cfg and cfg[10]:
                 qd = json.loads(cfg[10]) if isinstance(cfg[10], str) else cfg[10]
                 if isinstance(qd, dict):
@@ -530,9 +1080,9 @@ CRITICAL INSTRUCTIONS:
             rulebook: D&D rulebook version (e.g., "5e 2024")
             is_continue: If True, resumes existing session without prologue
         """
-        update_game_mode(interaction.guild.id, "Narrative")
+        await asyncio.to_thread(update_game_mode, interaction.guild.id, "Narrative")
         
-        config = get_dnd_config(interaction.guild.id)
+        config = await asyncio.to_thread(get_dnd_config, interaction.guild.id)
         quest_data = None
         
         # ===== LOAD QUEST DATA SAFELY =====
@@ -579,7 +1129,7 @@ CRITICAL INSTRUCTIONS:
             quest_data["path_key"] = theme
             # Persist a safe JSON representation
             try:
-                update_quest_data(interaction.guild.id, json.dumps(quest_data))
+                await asyncio.to_thread(update_quest_data, interaction.guild.id, json.dumps(quest_data))
             except Exception:
                 # best-effort; not fatal
                 pass
@@ -601,14 +1151,14 @@ CRITICAL INSTRUCTIONS:
         # If the config location is empty, set it to the quest theme
         if not conf_loc:
             try:
-                update_dnd_location(interaction.guild.id, quest_theme)
+                await asyncio.to_thread(update_dnd_location, interaction.guild.id, quest_theme)
             except Exception:
                 pass
         else:
             # If they disagree (e.g., config says 'ocean' but quest_data theme is 'desert'), prefer quest theme
             if quest_theme and quest_theme not in conf_loc and not any(x in conf_loc for x in [quest_theme, "tavern"]):
                 try:
-                    update_dnd_location(interaction.guild.id, quest_theme)
+                    await asyncio.to_thread(update_dnd_location, interaction.guild.id, quest_theme)
                 except Exception:
                     pass
         
@@ -628,7 +1178,7 @@ CRITICAL INSTRUCTIONS:
             # NEW SESSION - Show prologue with narrative setup
             story = f"**{quest_name}**\n\nYour adventure begins in a {quest_theme} setting. The prophecy of 12 heroes must be fulfilled. What will you do first?"
             title = f"📖 {quest_name}"
-            update_dnd_summary(interaction.guild.id, story)
+            await asyncio.to_thread(update_dnd_summary, interaction.guild.id, story)
         
         embed = discord.Embed(
             title=title,
@@ -655,9 +1205,9 @@ CRITICAL INSTRUCTIONS:
         
         # Log the session event
         if is_resume:
-            add_dnd_history(interaction.channel.id, "DM", f"Session resumed: {quest_name}")
+            await asyncio.to_thread(add_dnd_history, interaction.channel.id, "DM", f"Session resumed: {quest_name}")
         else:
-            add_dnd_history(interaction.channel.id, "DM", f"Session started: {quest_name}")
+            await asyncio.to_thread(add_dnd_history, interaction.channel.id, "DM", f"Session started: {quest_name}")
     
     async def run_dnd_turn(self, interaction: discord.Interaction, action: str, already_deferred: bool = True):
         """
@@ -700,12 +1250,12 @@ CRITICAL INSTRUCTIONS:
         
         # ===== GET PLAYER CHARACTER =====
         # Fetch the player's character sheet
-        char = get_character(interaction.user.id, interaction.guild.id)
+        char = await asyncio.to_thread(get_character, interaction.user.id, interaction.guild.id)
         stats = f"{char.get('name', 'Unknown')}: {char.get('hp', 0)}/{char.get('max_hp', 1)} HP" if char else "Unknown character"
         
         # ===== LOG ACTION TO HISTORY =====
         # Record this action in the session history for context in future turns
-        add_dnd_history(interaction.channel.id, interaction.user.display_name, action[:200])
+        await asyncio.to_thread(add_dnd_history, interaction.channel.id, interaction.user.display_name, action[:200])
         
         # ===== GET AI DM RESPONSE =====
         # Call Groq API to get DM's narrative response to the player's action
@@ -723,16 +1273,16 @@ CRITICAL INSTRUCTIONS:
         # ===== UPDATE GAME STATE =====
         # Persist changes to the database
         if new_location != location:
-            update_dnd_location(interaction.guild.id, new_location)
+            await asyncio.to_thread(update_dnd_location, interaction.guild.id, new_location)
         
-        update_dnd_summary(interaction.guild.id, story[:500])  # Update session summary
-        add_dnd_history(interaction.channel.id, "DM", story[:300])  # Log DM response
+        await asyncio.to_thread(update_dnd_summary, interaction.guild.id, story[:500])  # Update session summary
+        await asyncio.to_thread(add_dnd_history, interaction.channel.id, "DM", story[:300])  # Log DM response
         
         # ===== GRANT HEROIC INSPIRATION (D&D 2024) =====
         # Natural 20s or critical successes grant inspiration for future rerolls
         if dm_response.get("grant_heroic_inspiration") and char:
             char['heroic_inspiration'] = True
-            update_character(interaction.user.id, interaction.guild.id, char)
+            await asyncio.to_thread(update_character, interaction.user.id, interaction.guild.id, char)
         
         # ===== PROCESS DAMAGE EVENTS =====
         # Handle any damage dealt to combatants
@@ -744,15 +1294,15 @@ CRITICAL INSTRUCTIONS:
             amount = event.get("amount", 0)
             
             # Find matching combatant and apply damage
-            combatants = get_combat_order(interaction.channel.id)
+            combatants = await asyncio.to_thread(get_combat_order, interaction.channel.id)
             for combatant in combatants:
                 cid, cname, _, _, _, is_monster, _ = combatant
                 if target.lower() in cname.lower():
                     # Update combatant HP
-                    new_hp = update_combatant_hp(interaction.channel.id, cid, -amount)
+                    new_hp = await asyncio.to_thread(update_combatant_hp, interaction.channel.id, cid, -amount)
                     
                     # Check for concentration saves (if they're concentrating on a spell)
-                    conditions = get_combatant_conditions(interaction.channel.id, cid)
+                    conditions = await asyncio.to_thread(get_combatant_conditions, interaction.channel.id, cid)
                     if "concentrating" in conditions.lower() and amount > 0:
                         dc = max(10, amount // 2)  # DC = damage / 2, minimum 10
                         updates.append(f"⚠️ **{cname} needs CON Save (DC {dc}) to maintain concentration!**")
@@ -762,7 +1312,7 @@ CRITICAL INSTRUCTIONS:
                     
                     # Remove dead monsters from combat and trigger kill cam
                     if new_hp <= 0 and is_monster == 1:
-                        remove_combatant(interaction.channel.id, cid)
+                        await asyncio.to_thread(remove_combatant, interaction.channel.id, cid)
                         updates.append(f"☠️ {cname} defeated!")
                         
                         # === KILL CAM NARRATION ===
@@ -791,7 +1341,7 @@ CRITICAL INSTRUCTIONS:
                     # Update player character HP if they took damage
                     if cid == str(interaction.user.id) and char:
                         char['hp'] = new_hp
-                        update_character(interaction.user.id, interaction.guild.id, char)
+                        await asyncio.to_thread(update_character, interaction.user.id, interaction.guild.id, char)
         
         # ===== BUILD RESPONSE EMBED =====
         # Create the Discord embed to show the DM's narrative response
@@ -859,7 +1409,7 @@ CRITICAL INSTRUCTIONS:
             ascii_map = f"```\n┌─────────────────────┐\n│  {new_location.upper():^17}  │\n└─────────────────────┘\n```"
             
             # Get active combatants to show on map
-            combatants = get_combat_order(interaction.channel.id)
+            combatants = await asyncio.to_thread(get_combat_order, interaction.channel.id)
             if combatants:
                 # Build combatant list with HP bars
                 combat_ascii = "```\nActive Combatants:\n"
@@ -873,7 +1423,9 @@ CRITICAL INSTRUCTIONS:
                 # Only add if not too long
                 if len(combat_ascii) < 1024:
                     embed.add_field(name="⚔️ Battle Map", value=combat_ascii, inline=False)
-        except:
+        except Exception as e:
+
+            print(f"Exception caught: {e}")
             pass  # Gracefully skip ASCII map if error
         
         # ===== ADD MECHANICS CHECK (if available) =====
@@ -886,7 +1438,7 @@ CRITICAL INSTRUCTIONS:
             )
         
         # Get user's preferred language for footer
-        user_lang = get_target_language(interaction.user.id)
+        user_lang = await asyncio.to_thread(get_target_language, interaction.user.id)
         embed.set_footer(text=f"Language: {user_lang}" if user_lang and user_lang != "English" else "Language: English")
         
         # ===== ADD GAME UPDATES (damage, status, etc.) =====
@@ -920,7 +1472,7 @@ CRITICAL INSTRUCTIONS:
         # Show player's destiny score and if they've already rolled
         try:
             # Get this player's destiny roll from the launch
-            protagonist, destiny_score = get_session_protagonist(interaction.guild.id)
+            protagonist, destiny_score = await asyncio.to_thread(get_session_protagonist, interaction.guild.id)
             if protagonist == interaction.user.id or protagonist is None:
                 # Show destiny roll as a persistent stat
                 embed.add_field(
@@ -928,7 +1480,9 @@ CRITICAL INSTRUCTIONS:
                     value=f"**{destiny_score}**",
                     inline=True
                 )
-        except:
+        except Exception as e:
+
+            print(f"Exception caught: {e}")
             pass  # Skip if destiny system not available
         
         # ===== CREATE ACTION VIEW =====
@@ -961,7 +1515,7 @@ CRITICAL INSTRUCTIONS:
             view.add_item(mechanics_btn)
         
         # Add target selection button for combat scenarios
-        combatants = get_combat_order(interaction.channel.id)
+        combatants = await asyncio.to_thread(get_combat_order, interaction.channel.id)
         if combatants and len(combatants) > 1:
             target_btn = discord.ui.Button(
                 label="🎯 Select Target",
@@ -993,7 +1547,14 @@ CRITICAL INSTRUCTIONS:
                        channel: discord.TextChannel,
                        role: discord.Role = None):
         """Set up D&D with parent channel and optional role restriction - Moderators/Server Owners only"""
-        await interaction.response.defer(ephemeral=True)
+        try:
+            await interaction.response.defer(ephemeral=True)
+        except discord.errors.NotFound:
+            print("[setup_dnd] Interaction expired before defer")
+            return
+        except Exception as e:
+            print(f"[setup_dnd] Defer error: {e}")
+            return
         
         # Check if user has manage_guild permission or is owner
         if not (interaction.user.guild_permissions.manage_guild or 
@@ -1004,20 +1565,28 @@ CRITICAL INSTRUCTIONS:
             )
             return
         
-        role_id = role.id if role else None
-        save_dnd_config(interaction.guild.id, channel.id, role_id)
-        
-        embed = discord.Embed(
-            title="🎲 D&D Configured (2024 Rules)",
-            description=f"Dungeons & Dragons has been configured for {channel.mention}",
-            color=0x3498DB
-        )
-        if role:
-            embed.add_field(name="Role Restriction", value=role.mention)
-        embed.add_field(name="Configured by", value=interaction.user.mention, inline=True)
-        embed.set_footer(text="Use /start_session to begin")
-        
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        try:
+            role_id = role.id if role else None
+            await asyncio.to_thread(save_dnd_config, interaction.guild.id, channel.id, role_id)
+            
+            embed = discord.Embed(
+                title="🎲 D&D Configured (2024 Rules)",
+                description=f"Dungeons & Dragons has been configured for {channel.mention}",
+                color=0x3498DB
+            )
+            if role:
+                embed.add_field(name="Role Restriction", value=role.mention)
+            embed.add_field(name="Configured by", value=interaction.user.mention, inline=True)
+            embed.add_field(name="Thread Channel", value=f"Create threads in {channel.mention} to play", inline=False)
+            embed.set_footer(text="Use /start_session inside a thread to begin")
+            
+            await interaction.followup.send(embed=embed, ephemeral=True)
+        except Exception as e:
+            print(f"[setup_dnd] Error: {e}")
+            await interaction.followup.send(
+                f"❌ Setup failed: `{str(e)[:200]}`\nPlease try again.",
+                ephemeral=True
+            )
     
     @app_commands.command(name="start_session", description="Start or continue a D&D session")
     @is_dnd_player()
@@ -1051,8 +1620,8 @@ CRITICAL INSTRUCTIONS:
             
             # Get config with timeout protection
             try:
-                phase, legends = get_dnd_campaign_data(interaction.guild.id)
-                config = get_dnd_config(interaction.guild.id)
+                phase, legends = await asyncio.to_thread(get_dnd_campaign_data, interaction.guild.id)
+                config = await asyncio.to_thread(get_dnd_config, interaction.guild.id)
             except Exception as e:
                 print(f"[start_session] Config error: {e}")
                 phase, legends = 1, []
@@ -1065,7 +1634,9 @@ CRITICAL INSTRUCTIONS:
                 try:
                     quest_data = json.loads(config[10])
                     quest_title = quest_data.get('name', quest_title)
-                except:
+                except Exception as e:
+
+                    print(f"Exception caught: {e}")
                     pass
             
             view = SessionLobbyView(
@@ -1077,7 +1648,7 @@ CRITICAL INSTRUCTIONS:
                 legends=legends
             )
             
-            embed = view.update_embed()
+            embed = await view.update_embed()
             await interaction.followup.send(embed=embed, view=view)
             
         except Exception as e:
@@ -1087,7 +1658,9 @@ CRITICAL INSTRUCTIONS:
                     f"❌ Error starting session: {str(e)[:100]}",
                     ephemeral=True
                 )
-            except:
+            except Exception as e:
+
+                print(f"Exception caught: {e}")
                 pass
     
     
@@ -1132,18 +1705,22 @@ CRITICAL INSTRUCTIONS:
                         else:
                             char_data["hp"] = int(hp_part)
                             char_data["max_hp"] = int(hp_part)
-                    except:
+                    except Exception as e:
+
+                        print(f"Exception caught: {e}")
                         pass
                 elif "ac:" in line_lower or "armor class:" in line_lower:
                     try:
                         char_data["ac"] = int(line.split(":", 1)[1].strip())
-                    except:
+                    except Exception as e:
+
+                        print(f"Exception caught: {e}")
                         pass
                 # Migrate from old keys
                 if "race:" in line_lower:
                     char_data["species"] = line.split(":", 1)[1].strip()
             
-            update_character(interaction.user.id, interaction.guild.id, char_data)
+            await asyncio.to_thread(update_character, interaction.user.id, interaction.guild.id, char_data)
             
             embed = discord.Embed(
                 title="✅ Character Imported",
@@ -1171,17 +1748,16 @@ CRITICAL INSTRUCTIONS:
             await interaction.followup.send("❌ Not a valid D&D thread", ephemeral=True)
             return
         
-        update_game_mode(interaction.guild.id, "Combat")
+        await asyncio.to_thread(update_game_mode, interaction.guild.id, "Combat")
         
-        char = get_character(interaction.user.id, interaction.guild.id)
+        char = await asyncio.to_thread(get_character, interaction.user.id, interaction.guild.id)
         char_name = char.get('name', interaction.user.display_name) if char else interaction.user.display_name
         
         initiative = random.randint(1, 20)
         if char and 'dex' in char:
             initiative += (char['dex'] - 10) // 2
         
-        add_combatant(
-            interaction.channel.id,
+        await asyncio.to_thread(add_combatant, interaction.channel.id,
             interaction.user.id,
             char_name,
             initiative,
@@ -1189,7 +1765,7 @@ CRITICAL INSTRUCTIONS:
             char.get('max_hp', 10) if char else 10
         )
         
-        combatants = get_combat_order(interaction.channel.id)
+        combatants = await asyncio.to_thread(get_combat_order, interaction.channel.id)
         
         embed = discord.Embed(
             title="⚔️ Initiative Rolled",
@@ -1209,7 +1785,7 @@ CRITICAL INSTRUCTIONS:
         """Take a long rest"""
         await interaction.response.defer()
         
-        perform_long_rest_db(interaction.channel.id, interaction.guild.id)
+        await asyncio.to_thread(perform_long_rest_db, interaction.channel.id, interaction.guild.id)
         
         embed = discord.Embed(
             title="⛺ Long Rest Complete",
@@ -1226,7 +1802,7 @@ CRITICAL INSTRUCTIONS:
         """Advance campaign phase with dynamic Chronos Engine (randomized time skips)"""
         await interaction.response.defer()
         
-        phase, _ = get_dnd_campaign_data(interaction.guild.id)
+        phase, _ = await asyncio.to_thread(get_dnd_campaign_data, interaction.guild.id)
         
         # Determine target phase
         if phase == 1:
@@ -1242,16 +1818,16 @@ CRITICAL INSTRUCTIONS:
         generations = TimeSkipManager.calculate_generations(years)
         
         # Update total years elapsed
-        total_years = update_total_years(interaction.guild.id, years)
+        total_years = await asyncio.to_thread(update_total_years, interaction.guild.id, years)
         
-        config = get_dnd_config(interaction.guild.id)
+        config = await asyncio.to_thread(get_dnd_config, interaction.guild.id)
         party = json.loads(config[6]) if config and config[6] else []
         
         # For Phase 2->3 transition, create legacy data and soul remnants
         if target_phase == 3:
             for user_id in party:
                 if not str(user_id).startswith("npc_"):
-                    char = get_character(user_id, interaction.guild.id)
+                    char = await asyncio.to_thread(get_character, user_id, interaction.guild.id)
                     if char:
                         legacy_data = {
                             "user_id": user_id,
@@ -1265,13 +1841,13 @@ CRITICAL INSTRUCTIONS:
                         legacy_data["legacy_buff"] = LevelProgression.generate_legacy_buff(legacy_data)
                         
                         # Save to legacy system
-                        save_legacy_data(interaction.guild.id, user_id, char.get('name', 'Unknown'), legacy_data)
+                        await asyncio.to_thread(save_legacy_data, interaction.guild.id, user_id, char.get('name', 'Unknown'), legacy_data)
         
         # Store surviving legends
         legends = []
         for user_id in party:
             if not str(user_id).startswith("npc_"):
-                char = get_character(user_id, interaction.guild.id)
+                char = await asyncio.to_thread(get_character, user_id, interaction.guild.id)
                 if char:
                     legends.append({
                         "id": user_id,
@@ -1281,7 +1857,7 @@ CRITICAL INSTRUCTIONS:
                         "destiny_roll": char.get('destiny_roll', 0)
                     })
         
-        advance_campaign_phase(interaction.guild.id, target_phase, legends)
+        await asyncio.to_thread(advance_campaign_phase, interaction.guild.id, target_phase, legends)
         
         # Update quest to next phase
         if config and config[10]:
@@ -1291,9 +1867,11 @@ CRITICAL INSTRUCTIONS:
                 if path_key in VOID_CYCLE_BIOMES:
                     biome_key = f"p{target_phase}" if target_phase in [2, 3] else "p1"
                     if biome_key in VOID_CYCLE_BIOMES[path_key]:
-                        update_quest_data(interaction.guild.id, json.dumps(VOID_CYCLE_BIOMES[path_key][biome_key]))
-                        update_dnd_location(interaction.guild.id, path_key)
-            except:
+                        await asyncio.to_thread(update_quest_data, interaction.guild.id, json.dumps(VOID_CYCLE_BIOMES[path_key][biome_key]))
+                        await asyncio.to_thread(update_dnd_location, interaction.guild.id, path_key)
+            except Exception as e:
+
+                print(f"Exception caught: {e}")
                 pass
         
         # Create narrative summary for time skip
@@ -1303,7 +1881,7 @@ CRITICAL INSTRUCTIONS:
         else:  # Phase 3
             summary += f"{time_flavor}\n\nThe descendants of heroes must break the cycle. {generations['generations']} generations separate them from their ancestors' glory."
         
-        update_dnd_summary(interaction.guild.id, summary)
+        await asyncio.to_thread(update_dnd_summary, interaction.guild.id, summary)
         
         # Create detailed embed with Chronos Engine info
         embed = discord.Embed(
@@ -1330,15 +1908,15 @@ CRITICAL INSTRUCTIONS:
     @is_dnd_player()
     async def roll_destiny(self, interaction: discord.Interaction):
         """Roll destiny score for narrative weight"""
-        char = get_character(interaction.user.id, interaction.guild.id)
+        char = await asyncio.to_thread(get_character, interaction.user.id, interaction.guild.id)
         if not char:
             await interaction.response.send_message("❌ Import a character sheet first", ephemeral=True)
             return
         
         roll = random.randint(1, 100)
-        update_character_destiny(interaction.user.id, interaction.guild.id, roll)
+        await asyncio.to_thread(update_character_destiny, interaction.user.id, interaction.guild.id, roll)
         
-        protagonist, score = get_session_protagonist(interaction.guild.id)
+        protagonist, score = await asyncio.to_thread(get_session_protagonist, interaction.guild.id)
         
         embed = discord.Embed(
             title="🔮 Destiny Roll",
@@ -1375,7 +1953,7 @@ CRITICAL INSTRUCTIONS:
             return
         
         try:
-            clear_combat(interaction.channel.id)
+            await asyncio.to_thread(clear_combat, interaction.channel.id)
             
             # Disable all views in the channel
             try:
@@ -1383,9 +1961,13 @@ CRITICAL INSTRUCTIONS:
                     if message.components:
                         try:
                             await message.edit(view=None)
-                        except:
+                        except Exception as e:
+
+                            print(f"Exception caught: {e}")
                             pass
-            except:
+            except Exception as e:
+
+                print(f"Exception caught: {e}")
                 pass
             
             if interaction.guild.id in self.voice_clients:
@@ -1410,7 +1992,9 @@ CRITICAL INSTRUCTIONS:
                     f"❌ Error ending session: {str(e)[:100]}",
                     ephemeral=True
                 )
-            except:
+            except Exception as e:
+
+                print(f"Exception caught: {e}")
                 pass
         
         await interaction.followup.send(embed=embed)
@@ -1430,13 +2014,13 @@ CRITICAL INSTRUCTIONS:
             )
             return
         
-        reset_campaign(interaction.guild.id, interaction.channel.id)
+        await asyncio.to_thread(reset_campaign, interaction.guild.id, interaction.channel.id)
         
         theme = random.choice(list(CONQUEST_PATHS.keys()))
         quest_data = CONQUEST_PATHS[theme]["p1"]
         quest_data["path_key"] = theme
-        update_quest_data(interaction.guild.id, json.dumps(quest_data))
-        update_dnd_location(interaction.guild.id, quest_data["theme"])
+        await asyncio.to_thread(update_quest_data, interaction.guild.id, json.dumps(quest_data))
+        await asyncio.to_thread(update_dnd_location, interaction.guild.id, quest_data["theme"])
         
         await interaction.followup.send(
             f"🔄 Campaign reset! New quest: **{quest_data['name']}** (reset by {interaction.user.mention})", 
@@ -1462,7 +2046,7 @@ CRITICAL INSTRUCTIONS:
             await interaction.followup.send("❌ Topic or description too long", ephemeral=True)
             return
         
-        add_lore(interaction.guild.id, topic, description)
+        await asyncio.to_thread(add_lore, interaction.guild.id, topic, description)
         
         embed = discord.Embed(
             title="📖 Lore Added",
@@ -1553,8 +2137,8 @@ CRITICAL INSTRUCTIONS:
         """Display campaign information"""
         await interaction.response.defer()
         
-        phase, legends = get_dnd_campaign_data(interaction.guild.id)
-        config = get_dnd_config(interaction.guild.id)
+        phase, legends = await asyncio.to_thread(get_dnd_campaign_data, interaction.guild.id)
+        config = await asyncio.to_thread(get_dnd_config, interaction.guild.id)
         
         quest_name = "Unknown Quest"
         quest_theme = "tavern"
@@ -1563,7 +2147,9 @@ CRITICAL INSTRUCTIONS:
                 quest_data = json.loads(config[10])
                 quest_name = quest_data.get('name', quest_name)
                 quest_theme = quest_data.get('theme', quest_theme)
-            except:
+            except Exception as e:
+
+                print(f"Exception caught: {e}")
                 pass
         
         embed = discord.Embed(
@@ -1589,7 +2175,7 @@ CRITICAL INSTRUCTIONS:
                 legends_text += f" and {len(legends) - 5} more..."
             embed.add_field(name="Legends", value=legends_text, inline=False)
         
-        protagonist, score = get_session_protagonist(interaction.guild.id)
+        protagonist, score = await asyncio.to_thread(get_session_protagonist, interaction.guild.id)
         if protagonist:
             embed.add_field(name="Protagonist", value=f"{protagonist} (Destiny: {score})", inline=False)
         
@@ -1728,8 +2314,10 @@ CRITICAL INSTRUCTIONS:
         # Try to get spell from database
         try:
             from database import get_spell_by_name
-            spell = get_spell_by_name(spell_name)
-        except:
+            spell = await asyncio.to_thread(get_spell_by_name, spell_name)
+        except Exception as e:
+
+            print(f"Exception caught: {e}")
             spell = None
         
         if not spell:
@@ -1776,8 +2364,10 @@ CRITICAL INSTRUCTIONS:
         # Try to get monster from database
         try:
             from database import get_monster_by_name
-            monster = get_monster_by_name(monster_name)
-        except:
+            monster = await asyncio.to_thread(get_monster_by_name, monster_name)
+        except Exception as e:
+
+            print(f"Exception caught: {e}")
             monster = None
         
         if not monster:
@@ -1906,7 +2496,7 @@ CRITICAL INSTRUCTIONS:
             interaction.user.id
         )
         
-        char = get_character(interaction.user.id, interaction.guild.id)
+        char = await asyncio.to_thread(get_character, interaction.user.id, interaction.guild.id)
         if not char:
             await interaction.followup.send("No character found", ephemeral=True)
             return
@@ -2041,11 +2631,11 @@ CRITICAL INSTRUCTIONS:
         """Migrate from legacy 2014 to 2024 rules"""
         await interaction.response.defer(ephemeral=True)
         
-        update_dnd_rulebook(interaction.guild.id, "2024")
+        await asyncio.to_thread(update_dnd_rulebook, interaction.guild.id, "2024")
         
         conn = sqlite3.connect(DB_FILE)
         c = conn.cursor()
-        c.execute("SELECT user_id, guild_id, char_data FROM dnd_characters WHERE guild_id=?", (str(interaction.guild.id),))
+        c.execute("SELECT user_id, guild_id, char_data FROM dnd_characters WHERE guild_id=?", (str(interaction.guild.id)))
         characters = c.fetchall()
         
         migrated = 0
@@ -2119,8 +2709,7 @@ CRITICAL INSTRUCTIONS:
                     point_name = unique_points[point_idx]
                     
                     # Save configuration
-                    save_void_cycle_data(
-                        interaction.guild.id,
+                    await asyncio.to_thread(save_void_cycle_data, interaction.guild.id,
                         phase=1,
                         world_unique_point=point_name,
                         generation=1
@@ -2179,8 +2768,7 @@ CRITICAL INSTRUCTIONS:
                 if 1 <= unique_point <= len(unique_points):
                     point_name = unique_points[unique_point - 1]
                     
-                    save_void_cycle_data(
-                        interaction.guild.id,
+                    await asyncio.to_thread(save_void_cycle_data, interaction.guild.id,
                         phase=1,
                         world_unique_point=point_name,
                         generation=1
@@ -2220,7 +2808,7 @@ CRITICAL INSTRUCTIONS:
         try:
             from database import get_void_cycle_data, save_void_cycle_data
             
-            phase, unique_point, generation = get_void_cycle_data(interaction.guild.id)
+            phase, unique_point, generation = await asyncio.to_thread(get_void_cycle_data, interaction.guild.id)
             
             if phase == 0 or unique_point == "uninitialized":
                 await interaction.followup.send("❌ Campaign not initialized. Use `/initialize_void_cycle` first.", ephemeral=True)
@@ -2242,8 +2830,7 @@ CRITICAL INSTRUCTIONS:
                 phase_name = "Integrated Era"
             
             # Update phase
-            save_void_cycle_data(
-                interaction.guild.id,
+            await asyncio.to_thread(save_void_cycle_data, interaction.guild.id,
                 phase=next_phase,
                 generation=generation + 1
             )
@@ -2300,8 +2887,10 @@ CRITICAL INSTRUCTIONS:
             
             async def select_architect(interaction: discord.Interaction):
                 try:
-                    save_session_mode(interaction.guild.id, SessionModeManager.ARCHITECT)
-                except:
+                    await asyncio.to_thread(save_session_mode, interaction.guild.id, SessionModeManager.ARCHITECT)
+                except Exception as e:
+
+                    print(f"Exception caught: {e}")
                     # Table migration not complete yet, will work after restart
                     pass
                 await interaction.response.send_message(
@@ -2314,8 +2903,10 @@ CRITICAL INSTRUCTIONS:
             
             async def select_scribe(interaction: discord.Interaction):
                 try:
-                    save_session_mode(interaction.guild.id, SessionModeManager.SCRIBE)
-                except:
+                    await asyncio.to_thread(save_session_mode, interaction.guild.id, SessionModeManager.SCRIBE)
+                except Exception as e:
+
+                    print(f"Exception caught: {e}")
                     # Table migration not complete yet, will work after restart
                     pass
                 await interaction.response.send_message(
@@ -2361,14 +2952,18 @@ CRITICAL INSTRUCTIONS:
             # Direct mode selection
             if mode.lower() in ["architect", "arch"]:
                 try:
-                    save_session_mode(interaction.guild.id, SessionModeManager.ARCHITECT)
-                except:
+                    await asyncio.to_thread(save_session_mode, interaction.guild.id, SessionModeManager.ARCHITECT)
+                except Exception as e:
+
+                    print(f"Exception caught: {e}")
                     pass  # Table migration not complete yet
                 await interaction.followup.send("✅ **Architect Mode** activated!", ephemeral=True)
             elif mode.lower() in ["scribe", "scr"]:
                 try:
-                    save_session_mode(interaction.guild.id, SessionModeManager.SCRIBE)
-                except:
+                    await asyncio.to_thread(save_session_mode, interaction.guild.id, SessionModeManager.SCRIBE)
+                except Exception as e:
+
+                    print(f"Exception caught: {e}")
                     pass  # Table migration not complete yet
                 await interaction.followup.send("✅ **Scribe Mode** activated!", ephemeral=True)
             else:
@@ -2381,7 +2976,7 @@ CRITICAL INSTRUCTIONS:
         await interaction.response.defer()
         
         # Check if Phase 3 is complete
-        phase, legends = get_dnd_campaign_data(interaction.guild.id)
+        phase, legends = await asyncio.to_thread(get_dnd_campaign_data, interaction.guild.id)
         
         if phase < 3:
             await interaction.followup.send(
@@ -2392,11 +2987,11 @@ CRITICAL INSTRUCTIONS:
             return
         
         # Get chronicles if they exist
-        chronicle = get_chronicles(interaction.guild.id)
+        chronicle = await asyncio.to_thread(get_chronicles, interaction.guild.id)
         
         if not chronicle:
             # Generate default chronicles if Phase 3 but no chronicle saved yet
-            config = get_dnd_config(interaction.guild.id)
+            config = await asyncio.to_thread(get_dnd_config, interaction.guild.id)
             party = json.loads(config[6]) if config and config[6] else []
             
             founder = "Unknown Founder"
@@ -2408,7 +3003,7 @@ CRITICAL INSTRUCTIONS:
             
             for user_id in party:
                 if not str(user_id).startswith("npc_"):
-                    char = get_character(user_id, interaction.guild.id)
+                    char = await asyncio.to_thread(get_character, user_id, interaction.guild.id)
                     if char:
                         if not founder or founder == "Unknown Founder":
                             founder = char.get('name', 'Unknown Founder')
@@ -2439,8 +3034,8 @@ CRITICAL INSTRUCTIONS:
                 "final_boss_name": "The Void Singularity"
             }
             
-            save_chronicles(interaction.guild.id, chronicle_data)
-            chronicle = get_chronicles(interaction.guild.id)
+            await asyncio.to_thread(save_chronicles, interaction.guild.id, chronicle_data)
+            chronicle = await asyncio.to_thread(get_chronicles, interaction.guild.id)
         
         # Build the Chronicles embed
         if chronicle:
@@ -2497,7 +3092,9 @@ CRITICAL INSTRUCTIONS:
                             value=", ".join(guardians[:5]),
                             inline=False
                         )
-                except:
+                except Exception as e:
+
+                    print(f"Exception caught: {e}")
                     pass
             
             embed.set_footer(text="Thus ends the chronicle of the Void Cycle")
@@ -2549,7 +3146,7 @@ CRITICAL INSTRUCTIONS:
         
         conn = sqlite3.connect(DB_FILE)
         c = conn.cursor()
-        c.execute("SELECT COUNT(*) FROM dnd_history WHERE thread_id=?", (str(ctx.channel.id),))
+        c.execute("SELECT COUNT(*) FROM dnd_history WHERE thread_id=?", (str(ctx.channel.id)))
         count = c.fetchone()[0]
         conn.close()
         
@@ -2563,7 +3160,7 @@ CRITICAL INSTRUCTIONS:
             return
         
         try:
-            config = get_dnd_config(member.guild.id)
+            config = await asyncio.to_thread(get_dnd_config, member.guild.id)
             if not config or not config[2] or config[2] == "New Campaign Started.":
                 return
             

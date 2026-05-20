@@ -1,3 +1,4 @@
+import asyncio
 import sqlite3
 import sys
 import os
@@ -8,7 +9,7 @@ import re
 # Add bot root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from database import DB_FILE, get_mod_settings
-from ai_manager import ask_ai
+from ai_manager import ask_ai, sanitize_input
 from .personality import VesperaPersonality as VP
 
 DEFAULT_MODEL = 'models/gemma-3-27b-it'
@@ -111,7 +112,8 @@ def log_message_to_context(guild_id: str, channel_id: str,
 async def analyze_content(text, context_history="", server_context="General Gaming",
                           guild_id=None, current_channel_type="General"):
     try:
-        clean = text.replace("||", "")
+        clean = sanitize_input(text.replace("||", ""))
+        context_history = sanitize_input(context_history, max_length=5000)
         ch_instr = ""
         if current_channel_type == "POLITICS":
             ch_instr = "IN POLITICS CHANNEL: Allow gov/pol anger."
@@ -139,7 +141,7 @@ async def analyze_content(text, context_history="", server_context="General Gami
         
         target_model = DEFAULT_MODEL
         if guild_id:
-            s = get_mod_settings(guild_id)
+            s = await asyncio.to_thread(get_mod_settings, guild_id)
             if s and len(s) > 7 and s[7]:
                 target_model = s[7]
 
@@ -180,7 +182,7 @@ def update_rep(user_id, guild_id, points):
 def save_settings(guild_id, **kwargs):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute("INSERT OR IGNORE INTO mod_settings (guild_id) VALUES (?)", (str(guild_id),))
+    c.execute("INSERT OR IGNORE INTO mod_settings (guild_id) VALUES (?)", (str(guild_id)))
     
     mapping = {
         'log_channel': 'log_channel_id',

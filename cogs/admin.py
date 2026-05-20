@@ -46,13 +46,41 @@ class AdminCog(commands.Cog):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 # ... [Existing code for /status command] ...
 
-    # --- ERROR HANDLER (ADD THIS) ---
+    # --- ERROR HANDLER ---
     async def cog_app_command_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
         if isinstance(error, app_commands.CheckFailure):
             await interaction.response.send_message(
-                "⛔ **Access Denied:** Only the **Bot Owner** can view system status.",
+                "⛔ **Access Denied:** Only the **Bot Owner** can use this command.",
                 ephemeral=True
             )
 
+    @app_commands.command(name="reload_genres", description="Hot-reload the genre map without restarting (Owner only)")
+    @app_commands.check(is_bot_owner)
+    async def reload_genres(self, interaction: discord.Interaction):
+        """Clears the in-memory genre map cache so the next lookup re-reads from disk."""
+        from cogs.utility_core.genre_mapper import reload_genre_map
+        reload_genre_map()
+        await interaction.response.send_message(
+            "✅ Genre map reloaded from disk.", ephemeral=True
+        )
+
+    @app_commands.command(name="set_model", description="Change the AI model for this server (Owner Only)")
+    @app_commands.describe(model_name="The full name of the model to use (e.g., models/gemini-2.5-pro)")
+    @app_commands.check(is_bot_owner)
+    async def set_model(self, interaction: discord.Interaction, model_name: str):
+        if not interaction.guild:
+            await interaction.response.send_message("❌ This command must be used in a server.", ephemeral=True)
+            return
+            
+        import database
+        database.save_mod_settings(interaction.guild.id, ai_model=model_name)
+        
+        embed = discord.Embed(
+            title="🤖 Model Configuration Updated",
+            description=f"The AI model for **{interaction.guild.name}** has been updated to:\n`{model_name}`",
+            color=discord.Color.green()
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
 async def setup(bot):
-    await bot.add_cog(AdminCog(bot))
+    await bot.add_cog(AdminCog(bot))

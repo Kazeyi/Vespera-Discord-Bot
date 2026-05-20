@@ -10,8 +10,11 @@ import time
 import hashlib
 import tempfile
 import zipfile
+import logging
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 import cloud_database as cloud_db
 from cloud_security import ephemeral_vault
 
@@ -903,7 +906,8 @@ Blueprint ID: {blueprint.blueprint_id}
                         if parsed_data.get('download_token') == token:
                             vault_data = temp_data
                             break
-                    except:
+                    except json.JSONDecodeError:
+                        logger.error(f"Failed to parse vault data for session {session_id}")
                         continue
         
         if not vault_data:
@@ -920,7 +924,8 @@ Blueprint ID: {blueprint.blueprint_id}
             
             return token_file, blueprint_data
             
-        except:
+        except json.JSONDecodeError:
+            logger.error(f"Failed to parse final vault data for token {token}")
             return None
     
     @staticmethod
@@ -952,7 +957,8 @@ Blueprint ID: {blueprint.blueprint_id}
                                         found_valid = True
                                         break
                                     # Expired - will be cleaned
-                            except:
+                            except json.JSONDecodeError:
+                                logger.error(f"Failed to parse blueprint data during cleanup for session {session_id}")
                                 continue
                 
                 # If no valid vault session found, clean up the file
@@ -960,7 +966,8 @@ Blueprint ID: {blueprint.blueprint_id}
                     try:
                         os.unlink(os.path.join(blueprint_dir, filename))
                         cleaned += 1
-                    except:
+                    except OSError as e:
+                        logger.error(f"Failed to delete expired blueprint file {filename}: {e}")
                         pass
         
         return cleaned

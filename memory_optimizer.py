@@ -6,8 +6,11 @@ Tackles high memory usage (800MB → target <400MB)
 import gc
 import sys
 import weakref
+import logging
 from functools import lru_cache
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 class MemoryOptimizer:
@@ -33,11 +36,11 @@ class MemoryOptimizer:
         
         # Clear cache wrappers
         for obj in gc.get_objects():
-            if hasattr(obj, 'cache_clear') and callable(obj.cache_clear):
+            if type(obj).__name__ == '_lru_cache_wrapper':
                 try:
                     obj.cache_clear()
-                except:
-                    pass
+                except Exception as e:
+                    logger.exception("Failed to clear cache wrapper")
     
     @staticmethod
     def get_memory_mb() -> float:
@@ -47,7 +50,8 @@ class MemoryOptimizer:
             import os
             process = psutil.Process(os.getpid())
             return process.memory_info().rss / 1024 / 1024
-        except:
+        except Exception as e:
+            logger.error("Failed to get memory info (psutil missing or permissions issue)")
             return 0.0
     
     @staticmethod
@@ -57,14 +61,18 @@ class MemoryOptimizer:
         
         # Count cached objects (safely)
         cache_count = 0
-        for obj in gc.get_objects():
-            try:
-                if hasattr(obj, '__name__'):
-                    obj_name = getattr(obj, '__name__', '')
-                    if isinstance(obj_name, str) and 'cache' in obj_name.lower():
+        try:
+            for obj in gc.get_objects():
+                try:
+                    # Use type() instead of hasattr() to avoid triggering property/lazy getters
+                    obj_type = type(obj)
+                    if hasattr(obj_type, '__name__') and '_lru_cache_wrapper' in obj_type.__name__:
                         cache_count += 1
-            except (AttributeError, TypeError, RuntimeError):
-                continue
+                except Exception:
+                    continue
+        except (RuntimeError, ModuleNotFoundError):
+            # gc.get_objects() can occasionally fail during collection
+            pass
         
         return {
             'memory_mb': mem_mb,

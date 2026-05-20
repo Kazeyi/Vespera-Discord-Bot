@@ -66,6 +66,9 @@ class AIRequestGovernor:
         self.global_cooldown = 0.5  # 500ms between requests globally
         self.last_request_time = 0.0
         
+        # Concurrency limit
+        self.semaphore = asyncio.Semaphore(5)
+        
         # Processing task
         self.processor_task: Optional[asyncio.Task] = None
         
@@ -151,8 +154,44 @@ class AIRequestGovernor:
             
             return True
     
+    async def _execute_request(self, request: AIRequest):
+        """Execute a single request and manage stats/semaphore"""
+        self.current_request = request
+        self.processing = True
+        
+        print(f"⚙️ Processing AI request: {request.request_id}")
+        start_time = time.time()
+        
+        try:
+            # Execute the callback (should be an async function that calls ask_ai)
+            await request.callback(request.prompt, request.model_name)
+            
+            processing_time = time.time() - start_time
+            self.stats['total_processed'] += 1
+            
+            # Update average processing time
+            current_avg = self.stats['avg_processing_time']
+            total = self.stats['total_processed']
+            self.stats['avg_processing_time'] = (current_avg * (total - 1) + processing_time) / total
+            
+            print(f"✅ Completed: {request.request_id} ({processing_time:.2f}s)")
+            
+        except asyncio.TimeoutError:
+            self.stats['total_timeout'] += 1
+            print(f"⏱️ Timeout: {request.request_id}")
+        
+        except Exception as e:
+            self.stats['total_failed'] += 1
+            print(f"❌ Failed: {request.request_id} - {str(e)[:100]}")
+        
+        finally:
+            self.semaphore.release()
+            self.current_request = None
+            self.processing = False
+            self.last_request_time = time.time()
+
     async def _process_queue(self):
-        """Background task that processes requests sequentially"""
+        """Background task that processes requests concurrently up to semaphore limit"""
         print("🔄 AI Request Processor loop started")
         
         while True:
@@ -162,55 +201,22 @@ class AIRequestGovernor:
                     await asyncio.sleep(0.1)  # Small sleep to prevent busy-waiting
                     continue
                 
-                # Enforce global cooldown
-                now = time.time()
-                time_since_last = now - self.last_request_time
-                if time_since_last < self.global_cooldown:
-                    await asyncio.sleep(self.global_cooldown - time_since_last)
+                # Wait for an available concurrency slot
+                await self.semaphore.acquire()
                 
                 # Get next request
                 async with self._lock:
                     if not self.queue:
+                        self.semaphore.release()
                         continue
                     request = self.queue.popleft()
                 
-                self.current_request = request
-                self.processing = True
+                # Launch task concurrently
+                asyncio.create_task(self._execute_request(request))
                 
-                print(f"⚙️ Processing AI request: {request.request_id}")
-                
-                # Process request with timing
-                start_time = time.time()
-                
-                try:
-                    # Execute the callback (should be an async function that calls ask_ai)
-                    await request.callback(request.prompt, request.model_name)
-                    
-                    processing_time = time.time() - start_time
-                    self.stats['total_processed'] += 1
-                    
-                    # Update average processing time
-                    current_avg = self.stats['avg_processing_time']
-                    total = self.stats['total_processed']
-                    self.stats['avg_processing_time'] = (current_avg * (total - 1) + processing_time) / total
-                    
-                    print(f"✅ Completed: {request.request_id} ({processing_time:.2f}s)")
-                    
-                except asyncio.TimeoutError:
-                    self.stats['total_timeout'] += 1
-                    print(f"⏱️ Timeout: {request.request_id}")
-                
-                except Exception as e:
-                    self.stats['total_failed'] += 1
-                    print(f"❌ Failed: {request.request_id} - {str(e)[:100]}")
-                
-                finally:
-                    self.current_request = None
-                    self.processing = False
-                    self.last_request_time = time.time()
-                
-                # Small delay between requests to prevent CPU spikes
-                await asyncio.sleep(0.1)
+                # Small delay to respect global API pacing
+                await asyncio.sleep(self.global_cooldown)
+            
             
             except asyncio.CancelledError:
                 print("🛑 AI Request Processor cancelled")
