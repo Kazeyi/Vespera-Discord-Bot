@@ -1532,6 +1532,8 @@ class FirewallAttachmentView(discord.ui.View):
 class CloudCog(commands.Cog):
     """ChatOps for Cloud Infrastructure Provisioning (Memory-Optimized)"""
     
+    cloud_group = app_commands.Group(name="cloud", description="Cloud infrastructure management commands")
+    
     def __init__(self, bot):
         self.bot = bot
         
@@ -1775,6 +1777,22 @@ class CloudCog(commands.Cog):
         except Exception as e:
             print(f"⚠️ [CloudCog] Knowledge base loading failed: {e}")
     
+    async def validate_cloud_thread(self, interaction: discord.Interaction) -> bool:
+        """Validate if the interaction is happening within a Discord Thread channel"""
+        if not isinstance(interaction.channel, discord.Thread):
+            if interaction.response.is_done():
+                await interaction.followup.send(
+                    "❌ This command can only be run inside a Discord Thread channel to keep the main channel clean.",
+                    ephemeral=True
+                )
+            else:
+                await interaction.response.send_message(
+                    "❌ This command can only be run inside a Discord Thread channel to keep the main channel clean.",
+                    ephemeral=True
+                )
+            return False
+        return True
+    
     # --- PROJECT MANAGEMENT ---
     
     @app_commands.command(name="cloud-init", description="Initialize a new cloud project with secure vault handshake")
@@ -1942,7 +1960,7 @@ class CloudCog(commands.Cog):
     
     # --- DEPLOYMENT LOBBY ---
     
-    @app_commands.command(name="cloud-deploy-v2", description="Deploy cloud infrastructure (Enhanced UI with dynamic dropdowns)")
+    @cloud_group.command(name="deploy-v2", description="Deploy cloud infrastructure (Enhanced UI with dynamic dropdowns)")
     @app_commands.describe(
         project_id="Project ID to deploy to",
         resource_type="Type of resource to deploy"
@@ -1961,6 +1979,8 @@ class CloudCog(commands.Cog):
         resource_type: app_commands.Choice[str]
     ):
         """Enhanced deployment with human-proof UI (dynamic dropdowns, AI validation)"""
+        if not await self.validate_cloud_thread(interaction):
+            return
         
         # Check rate limit (3 deployments per minute to prevent spam)
         allowed, count = RateLimiter.check_rate_limit(
@@ -2020,7 +2040,7 @@ class CloudCog(commands.Cog):
         view = EnhancedDeploymentView(project_id, self, resource_type.value)
         await interaction.followup.send(embed=embed, view=view)
     
-    @app_commands.command(name="cloud-deploy", description="Deploy cloud infrastructure via interactive lobby")
+    @cloud_group.command(name="deploy", description="Deploy cloud infrastructure via interactive lobby")
     @app_commands.checks.cooldown(1, 3.0, key=lambda i: i.user.id)
     @app_commands.describe(
         project_id="Project ID to deploy to",
@@ -2044,6 +2064,8 @@ class CloudCog(commands.Cog):
         machine_type: Optional[str] = None
     ):
         """Deploy infrastructure via interactive lobby"""
+        if not await self.validate_cloud_thread(interaction):
+            return
         await interaction.response.defer()
         
         # Get project
@@ -2186,11 +2208,13 @@ class CloudCog(commands.Cog):
     
     # --- RESOURCE MANAGEMENT ---
     
-    @app_commands.command(name="cloud-list", description="List deployed cloud resources")
+    @cloud_group.command(name="list", description="List deployed cloud resources")
     @app_commands.checks.cooldown(1, 3.0, key=lambda i: i.user.id)
     @app_commands.describe(project_id="Project ID to list resources for")
     async def cloud_list(self, interaction: discord.Interaction, project_id: str):
         """List deployed resources in a project"""
+        if not await self.validate_cloud_thread(interaction):
+            return
         await interaction.response.defer(ephemeral=True)
         
         project = cloud_db.get_cloud_project(project_id)
@@ -2241,7 +2265,7 @@ class CloudCog(commands.Cog):
         
         await interaction.followup.send(embed=embed, ephemeral=True)
     
-    @app_commands.command(name="cloud-edit", description="Edit an existing cloud resource (with AI safety checks)")
+    @cloud_group.command(name="edit", description="Edit an existing cloud resource (with AI safety checks)")
     @app_commands.describe(
         project_id="Project ID",
         resource_name="Name of the resource to edit"
@@ -2253,6 +2277,8 @@ class CloudCog(commands.Cog):
         resource_name: str
     ):
         """Edit existing resource with AI-powered safety checks"""
+        if not await self.validate_cloud_thread(interaction):
+            return
         await interaction.response.defer()
         
         # Get project
@@ -2312,11 +2338,13 @@ class CloudCog(commands.Cog):
         view = ResourceEditView(matching_resource, project, self)
         await interaction.followup.send(embed=embed, view=view)
     
-    @app_commands.command(name="cloud-quota", description="Check quota usage for a project")
+    @cloud_group.command(name="quota", description="Check quota usage for a project")
     @app_commands.checks.cooldown(1, 3.0, key=lambda i: i.user.id)
     @app_commands.describe(project_id="Project ID to check quotas for")
     async def cloud_quota(self, interaction: discord.Interaction, project_id: str):
         """Check quota usage"""
+        if not await self.validate_cloud_thread(interaction):
+            return
         await interaction.response.defer(ephemeral=True)
         
         project = cloud_db.get_cloud_project(project_id)
@@ -2379,7 +2407,7 @@ class CloudCog(commands.Cog):
     
     # --- PERMISSION MANAGEMENT ---
     
-    @app_commands.command(name="cloud-grant", description="Grant cloud permissions to a user (Admin only)")
+    @cloud_group.command(name="grant", description="Grant cloud permissions to a user (Admin only)")
     @app_commands.describe(
         user="User to grant permissions",
         provider="Cloud provider",
@@ -2407,6 +2435,8 @@ class CloudCog(commands.Cog):
         role: app_commands.Choice[str]
     ):
         """Grant cloud permissions to user"""
+        if not await self.validate_cloud_thread(interaction):
+            return
         await interaction.response.defer(ephemeral=True)
         
         # Define role permissions
@@ -2473,7 +2503,7 @@ class CloudCog(commands.Cog):
     
     # --- AI ADVISOR ---
     
-    @app_commands.command(name="cloud-advise", description="Get AI-powered cloud infrastructure recommendations (Groq AI)")
+    @cloud_group.command(name="advise", description="Get AI-powered cloud infrastructure recommendations (Groq AI)")
     @app_commands.describe(
         use_case="What are you building? (e.g., 'web application', 'data pipeline')",
         provider="Preferred cloud provider (or 'any' for comparison)",
@@ -2509,6 +2539,8 @@ class CloudCog(commands.Cog):
         use_gemini: bool = False
     ):
         """Get AI-powered cloud infrastructure recommendations with RAG + Guardrails"""
+        if not await self.validate_cloud_thread(interaction):
+            return
         
         if not self.ai_advisor:
             await interaction.response.send_message(
@@ -2701,7 +2733,7 @@ class CloudCog(commands.Cog):
     
     # --- TERRAFORM VALIDATION ---
     
-    @app_commands.command(name="cloud-validate", description="Validate terraform configuration with AI analysis")
+    @cloud_group.command(name="validate", description="Validate terraform configuration with AI analysis")
     @app_commands.checks.cooldown(1, 3.0, key=lambda i: i.user.id)
     @app_commands.describe(
         session_id="Deployment session ID to validate"
@@ -2712,6 +2744,8 @@ class CloudCog(commands.Cog):
         session_id: str
     ):
         """Validate terraform configuration and run plan"""
+        if not await self.validate_cloud_thread(interaction):
+            return
         
         if not self.terraform_validator:
             await interaction.response.send_message(
@@ -2841,10 +2875,12 @@ class CloudCog(commands.Cog):
     
     # --- MONITORING & HEALTH ---
     
-    @app_commands.command(name="cloud-health", description="Check cloud cog health status")
+    @cloud_group.command(name="health", description="Check cloud cog health status")
     @app_commands.checks.cooldown(1, 3.0, key=lambda i: i.user.id)
     async def cloud_health(self, interaction: discord.Interaction):
         """Display cog health metrics"""
+        if not await self.validate_cloud_thread(interaction):
+            return
         await interaction.response.defer(ephemeral=True)
         
         health = CloudCogHealth.get_cog_health(self)
@@ -2896,7 +2932,7 @@ class CloudCog(commands.Cog):
     
     # --- GUILD POLICY MANAGEMENT (Multi-Tenant) ---
     
-    @app_commands.command(name="cloud-guild-policy", description="Manage server-wide cloud policies (Admin Only)")
+    @cloud_group.command(name="guild-policy", description="Manage server-wide cloud policies (Admin Only)")
     @app_commands.describe(
         action="View or update guild policies",
         max_budget="Maximum monthly budget in USD (default: 1000)",
@@ -2923,6 +2959,8 @@ class CloudCog(commands.Cog):
         engine: Optional[app_commands.Choice[str]] = None
     ):
         """Manage guild-level cloud policies"""
+        if not await self.validate_cloud_thread(interaction):
+            return
         await interaction.response.defer(ephemeral=True)
         
         guild_id = str(interaction.guild.id)
@@ -3015,7 +3053,7 @@ class CloudCog(commands.Cog):
                     ephemeral=True
                 )
     
-    @app_commands.command(name="cloud-jit-grant", description="Grant temporary cloud permissions (Admin Only)")
+    @cloud_group.command(name="jit-grant", description="Grant temporary cloud permissions (Admin Only)")
     @app_commands.describe(
         user="User to grant permissions to",
         provider="Cloud provider",
@@ -3089,7 +3127,7 @@ class CloudCog(commands.Cog):
                 ephemeral=True
             )
     
-    @app_commands.command(name="cloud-jit-revoke", description="Revoke temporary cloud permissions (Admin Only)")
+    @cloud_group.command(name="jit-revoke", description="Revoke temporary cloud permissions (Admin Only)")
     @app_commands.describe(
         user="User to revoke permissions from"
     )
@@ -3100,6 +3138,8 @@ class CloudCog(commands.Cog):
         user: discord.Member
     ):
         """Revoke all active JIT permissions for a user"""
+        if not await self.validate_cloud_thread(interaction):
+            return
         await interaction.response.defer(ephemeral=True)
         
         try:
@@ -3137,7 +3177,7 @@ class CloudCog(commands.Cog):
     
     # --- SESSION RECOVERY (Upgrade A: Encrypted Handshake) ---
     
-    @app_commands.command(name="cloud-recover-session", description="Recover crashed deployment session (Break-Glass)")
+    @cloud_group.command(name="recover-session", description="Recover crashed deployment session (Break-Glass)")
     @app_commands.describe(
         session_id="Session ID from /cloud-init"
     )
@@ -3147,6 +3187,8 @@ class CloudCog(commands.Cog):
         session_id: str
     ):
         """Recover session from encrypted recovery blob after bot crash"""
+        if not await self.validate_cloud_thread(interaction):
+            return
         await interaction.response.defer(ephemeral=True)
         
         try:
@@ -3231,7 +3273,7 @@ class CloudCog(commands.Cog):
     
     # --- BLUEPRINT MIGRATION (Memory-Safe) ---
     
-    @app_commands.command(name="cloud-blueprint", 
+    @cloud_group.command(name="blueprint", 
                          description="Generate migration blueprint (Terraform/OpenTofu code)")
     @app_commands.describe(
         source_project_id="Project ID to migrate FROM",
@@ -3261,6 +3303,8 @@ class CloudCog(commands.Cog):
         include_docs: bool = True
     ):
         """Generate migration blueprint (Terraform/OpenTofu code for download)"""
+        if not await self.validate_cloud_thread(interaction):
+            return
         await interaction.response.defer()
         
         try:
@@ -3438,7 +3482,7 @@ class CloudCog(commands.Cog):
                 ephemeral=True
             )
     
-    @app_commands.command(name="cloud-blueprint-download", 
+    @cloud_group.command(name="blueprint-download", 
                          description="Download a generated blueprint")
     @app_commands.checks.cooldown(1, 3.0, key=lambda i: i.user.id)
     @app_commands.describe(
@@ -3450,6 +3494,8 @@ class CloudCog(commands.Cog):
         token: str
     ):
         """Download generated blueprint (time-gated)"""
+        if not await self.validate_cloud_thread(interaction):
+            return
         await interaction.response.defer(ephemeral=True)
         
         try:
@@ -3530,7 +3576,7 @@ class CloudCog(commands.Cog):
                 ephemeral=True
             )
     
-    @app_commands.command(name="cloud-blueprint-status", 
+    @cloud_group.command(name="blueprint-status", 
                          description="Check status of your blueprints")
     @app_commands.checks.cooldown(1, 3.0, key=lambda i: i.user.id)
     async def cloud_blueprint_status(
@@ -3538,6 +3584,8 @@ class CloudCog(commands.Cog):
         interaction: discord.Interaction
     ):
         """Check blueprint status"""
+        if not await self.validate_cloud_thread(interaction):
+            return
         await interaction.response.defer(ephemeral=True)
         
         # Note: Since blueprints are ephemeral, we can't list them all

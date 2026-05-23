@@ -21,6 +21,7 @@ from dotenv import load_dotenv
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from global_optimization import intern_string, enable_wal_mode
 from database import *
+from rate_guard import rate_guard as _rate_guard
 
 from .utility_core.personality import VesperaPersonality as VP
 
@@ -605,6 +606,35 @@ async def generate_truth_block(action: str, character_data: dict = None, target_
 
 class DNDCog(commands.Cog):
     """Unified D&D Cog with 2024 rules only"""
+
+    # --- TOP-LEVEL /dnd GROUP ---
+    dnd_group = app_commands.Group(
+        name="dnd",
+        description="Dungeons & Dragons – Vespera Chronicles"
+    )
+
+    # --- SUBGROUPS ---
+    dnd_session = app_commands.Group(
+        name="session",
+        description="Session & gameplay commands",
+        parent=dnd_group
+    )
+    dnd_combat = app_commands.Group(
+        name="combat",
+        description="Combat & initiative commands",
+        parent=dnd_group
+    )
+    dnd_lookup = app_commands.Group(
+        name="lookup",
+        description="Rules, spells & reference commands",
+        parent=dnd_group
+    )
+    dnd_admin = app_commands.Group(
+        name="admin",
+        description="DM & administrator commands",
+        parent=dnd_group
+    )
+
     
     def __init__(self, bot):
         self.bot = bot
@@ -762,7 +792,7 @@ class DNDCog(commands.Cog):
             if not isinstance(channel, discord.Thread):
                 return False, "❌ Not a D&D thread", None
             
-            config = await asyncio.to_thread(get_dnd_config, guild_id)
+            config = get_dnd_config(guild_id)
             if not config:
                 return False, "❌ D&D not configured. Run `/setup_dnd` first.", None
             
@@ -1541,7 +1571,7 @@ CRITICAL INSTRUCTIONS:
     
     # --- BASIC COMMANDS ---
     
-    @app_commands.command(name="setup_dnd", description="Configure D&D for this server")
+    @dnd_admin.command(name="setup", description="Configure D&D for this server")
     @app_commands.default_permissions(manage_guild=True)
     async def setup_dnd(self, interaction: discord.Interaction, 
                        channel: discord.TextChannel,
@@ -1578,7 +1608,7 @@ CRITICAL INSTRUCTIONS:
                 embed.add_field(name="Role Restriction", value=role.mention)
             embed.add_field(name="Configured by", value=interaction.user.mention, inline=True)
             embed.add_field(name="Thread Channel", value=f"Create threads in {channel.mention} to play", inline=False)
-            embed.set_footer(text="Use /start_session inside a thread to begin")
+            embed.set_footer(text="Use /dnd session start inside a thread to begin")
             
             await interaction.followup.send(embed=embed, ephemeral=True)
         except Exception as e:
@@ -1588,8 +1618,9 @@ CRITICAL INSTRUCTIONS:
                 ephemeral=True
             )
     
-    @app_commands.command(name="start_session", description="Start or continue a D&D session")
+    @dnd_session.command(name="start", description="Start or continue a D&D session")
     @is_dnd_player()
+    @_rate_guard(command="dnd_session_start", rpm=10, daily=100)
     async def start_session(self, interaction: discord.Interaction):
         """Start a new session or continue existing one"""
         # ===== IMMEDIATE DEFER (Required within 3 seconds) =====
@@ -1664,8 +1695,9 @@ CRITICAL INSTRUCTIONS:
                 pass
     
     
-    @app_commands.command(name="do", description="Perform an action in the D&D session")
+    @dnd_session.command(name="do", description="Perform an action in the D&D session")
     @is_dnd_player()
+    @_rate_guard(command="dnd_session_do", rpm=10, daily=100)
     async def do_action(self, interaction: discord.Interaction, action: str):
         """Perform an action (rate limited)"""
         if len(action) > 300:
@@ -1674,7 +1706,7 @@ CRITICAL INSTRUCTIONS:
         
         await self.run_dnd_turn(interaction, action)
     
-    @app_commands.command(name="import_character", description="Import character from D&D Beyond or text")
+    @dnd_session.command(name="import_character", description="Import character from D&D Beyond or text")
     @is_dnd_player()
     async def import_character(self, interaction: discord.Interaction, character_text: str):
         """Import character sheet"""
@@ -1737,7 +1769,7 @@ CRITICAL INSTRUCTIONS:
         except Exception as e:
             await interaction.followup.send(f"❌ Error importing character: {str(e)}", ephemeral=True)
     
-    @app_commands.command(name="roll_initiative", description="Roll initiative for combat")
+    @dnd_combat.command(name="initiative", description="Roll initiative for combat")
     @is_dnd_player()
     async def roll_initiative(self, interaction: discord.Interaction):
         """Roll initiative and start combat mode"""
@@ -1779,7 +1811,7 @@ CRITICAL INSTRUCTIONS:
         
         await interaction.followup.send(embed=embed)
     
-    @app_commands.command(name="long_rest", description="Take a long rest to heal and recover")
+    @dnd_combat.command(name="rest", description="Take a long rest to heal and recover")
     @is_dnd_player()
     async def long_rest(self, interaction: discord.Interaction):
         """Take a long rest"""
@@ -1796,7 +1828,7 @@ CRITICAL INSTRUCTIONS:
         
         await interaction.followup.send(embed=embed)
     
-    @app_commands.command(name="time_skip", description="Advance to next Phase with randomized time skip")
+    @dnd_admin.command(name="time_skip", description="Advance to next Phase with randomized time skip")
     @app_commands.default_permissions(manage_guild=True)
     async def time_skip(self, interaction: discord.Interaction):
         """Advance campaign phase with dynamic Chronos Engine (randomized time skips)"""
@@ -1904,7 +1936,7 @@ CRITICAL INSTRUCTIONS:
         
         await interaction.followup.send(embed=embed)
     
-    @app_commands.command(name="roll_destiny", description="Roll for protagonist status (d100)")
+    @dnd_session.command(name="roll_destiny", description="Roll for protagonist status (d100)")
     @is_dnd_player()
     async def roll_destiny(self, interaction: discord.Interaction):
         """Roll destiny score for narrative weight"""
@@ -1937,7 +1969,7 @@ CRITICAL INSTRUCTIONS:
         
         await interaction.response.send_message(embed=embed)
     
-    @app_commands.command(name="end_session", description="End the current D&D session")
+    @dnd_session.command(name="end", description="End the current D&D session")
     @is_dnd_player()
     async def end_session(self, interaction: discord.Interaction):
         """Cleanly end the session and disable all views"""
@@ -1999,7 +2031,7 @@ CRITICAL INSTRUCTIONS:
         
         await interaction.followup.send(embed=embed)
     
-    @app_commands.command(name="reset_campaign", description="Reset campaign to Phase 1")
+    @dnd_admin.command(name="reset", description="Reset campaign to Phase 1")
     @app_commands.default_permissions(manage_guild=True)
     async def reset_campaign_cmd(self, interaction: discord.Interaction):
         """Reset campaign data - Moderators/Server Owners only"""
@@ -2027,7 +2059,7 @@ CRITICAL INSTRUCTIONS:
             ephemeral=True
         )
     
-    @app_commands.command(name="add_lore", description="Add lore to the campaign")
+    @dnd_admin.command(name="add_lore", description="Add lore to the campaign")
     @app_commands.default_permissions(manage_guild=True)
     async def add_lore(self, interaction: discord.Interaction, topic: str, description: str):
         """Manually add lore - Moderators/Server Owners only"""
@@ -2056,7 +2088,7 @@ CRITICAL INSTRUCTIONS:
         
         await interaction.response.send_message(embed=embed, ephemeral=True)
     
-    @app_commands.command(name="ingest_rulebook", description="[ADMIN] Import markdown rulebook into database")
+    @dnd_admin.command(name="ingest_rulebook", description="[ADMIN] Import markdown rulebook into database")
     @app_commands.describe(
         filename="Filename in srd/ folder (e.g., 'RulesGlossary.md')",
         source="Source attribution (default: 'SRD 2024')"
@@ -2096,7 +2128,7 @@ CRITICAL INSTRUCTIONS:
         except Exception as e:
             await interaction.followup.send(f"❌ Ingestion failed: {str(e)}", ephemeral=True)
     
-    @app_commands.command(name="lookup_rule", description="Look up a D&D rule by keyword")
+    @dnd_lookup.command(name="lookup_rule", description="Look up a D&D rule by keyword")
     @app_commands.describe(
         keyword="Rule to search for (e.g., 'advantage', 'attack', 'concentration')",
         precise="Use stricter matching for technical terms (default: False)",
@@ -2131,7 +2163,7 @@ CRITICAL INSTRUCTIONS:
         
         await interaction.followup.send(embed=embed)
     
-    @app_commands.command(name="campaign_status", description="Check current campaign status")
+    @dnd_lookup.command(name="campaign", description="Check current campaign status")
     @is_dnd_player()
     async def campaign_status(self, interaction: discord.Interaction):
         """Display campaign information"""
@@ -2183,7 +2215,7 @@ CRITICAL INSTRUCTIONS:
     
     # --- ENHANCED COMMANDS ---
     
-    @app_commands.command(name="rule", description="Look up a D&D rule with precision filtering")
+    @dnd_lookup.command(name="rule", description="Look up a D&D rule with precision filtering")
     @app_commands.describe(keyword="Rule to look up (e.g., 'fireball', 'concentration')", 
                            precise="Use precision filtering (default: True)")
     async def rule_lookup(self, interaction: discord.Interaction, keyword: str, precise: bool = True):
@@ -2215,7 +2247,7 @@ CRITICAL INSTRUCTIONS:
         
         await interaction.followup.send(embed=embed)
     
-    @app_commands.command(name="mechanics", description="View truth block accuracy stats and mechanics analysis")
+    @dnd_lookup.command(name="mechanics", description="View truth block accuracy stats and mechanics analysis")
     @app_commands.describe(days="Number of days to analyze (default: 7)")
     async def mechanics_stats(self, interaction: discord.Interaction, days: int = 7):
         """Display truth block accuracy statistics and usage patterns"""
@@ -2275,7 +2307,7 @@ CRITICAL INSTRUCTIONS:
         
         await interaction.followup.send(embed=embed)
     
-    @app_commands.command(name="add_rule", description="Add a custom rule to the rulebook")
+    @dnd_admin.command(name="add_rule", description="Add a custom rule to the rulebook")
     @app_commands.default_permissions(manage_guild=True)
     async def add_rule_cmd(self, interaction: discord.Interaction, 
                           keyword: str, 
@@ -2306,7 +2338,7 @@ CRITICAL INSTRUCTIONS:
         
         await interaction.followup.send(embed=embed, ephemeral=True)
     
-    @app_commands.command(name="spell", description="Look up a spell from SRD")
+    @dnd_lookup.command(name="spell", description="Look up a spell from SRD")
     async def spell_lookup(self, interaction: discord.Interaction, spell_name: str):
         """SRD spell lookup using database"""
         await interaction.response.defer()
@@ -2356,7 +2388,7 @@ CRITICAL INSTRUCTIONS:
         embed.set_footer(text="Local SRD • PHB 2024")
         await interaction.followup.send(embed=embed)
     
-    @app_commands.command(name="monster", description="Look up a monster from SRD")
+    @dnd_lookup.command(name="monster", description="Look up a monster from SRD")
     async def monster_lookup(self, interaction: discord.Interaction, monster_name: str):
         """SRD monster lookup using database"""
         await interaction.response.defer()
@@ -2408,7 +2440,7 @@ CRITICAL INSTRUCTIONS:
         embed.set_footer(text="Local SRD • MM 2024")
         await interaction.followup.send(embed=embed)
     
-    @app_commands.command(name="damage_ref", description="Damage enemy by reference number")
+    @dnd_combat.command(name="damage", description="Damage enemy by reference number")
     @app_commands.describe(ref="Enemy reference number", damage="Damage amount")
     async def damage_by_ref(self, interaction: discord.Interaction, ref: int, damage: int):
         """Damage using combat tracker abbreviation"""
@@ -2440,7 +2472,7 @@ CRITICAL INSTRUCTIONS:
         
         await interaction.followup.send(embed=embed)
     
-    @app_commands.command(name="combat_status", description="Show compact combat status")
+    @dnd_combat.command(name="status", description="Show compact combat status")
     async def combat_status(self, interaction: discord.Interaction):
         """Show optimized combat tracker"""
         await interaction.response.defer()
@@ -2455,13 +2487,13 @@ CRITICAL INSTRUCTIONS:
         
         embed.add_field(
             name="Quick Commands",
-            value="`/damage_ref [number] [amount]` - Damage enemy\n`/attack [ref]` - Attack enemy",
+            value="`/dnd combat damage [number] [amount]` - Damage enemy",
             inline=False
         )
         
         await interaction.followup.send(embed=embed)
     
-    @app_commands.command(name="session_report", description="Generate session summary")
+    @dnd_session.command(name="report", description="Generate session summary")
     async def session_report(self, interaction: discord.Interaction):
         """Generate session scribe report"""
         await interaction.response.defer()
@@ -2486,7 +2518,7 @@ CRITICAL INSTRUCTIONS:
         else:
             await interaction.followup.send("No session data to report")
     
-    @app_commands.command(name="check_destiny", description="Check destiny milestones")
+    @dnd_lookup.command(name="destiny", description="Check destiny milestones")
     async def check_destiny(self, interaction: discord.Interaction):
         """Check destiny triggers"""
         await interaction.response.defer()
@@ -2545,9 +2577,10 @@ CRITICAL INSTRUCTIONS:
         
         await interaction.followup.send(embed=embed, ephemeral=True)
     
-    @app_commands.command(name="dm_suggest", description="Get AI suggestions for DM response")
+    @dnd_combat.command(name="suggest", description="Get AI suggestions for DM response")
     @app_commands.describe(player_action="The player's action to respond to")
     @app_commands.default_permissions(manage_guild=True)
+    @_rate_guard(command="dnd_combat_suggest", rpm=5, daily=30)
     async def dm_suggest(self, interaction: discord.Interaction, player_action: str):
         """DM oversight mode"""
         await interaction.response.defer(ephemeral=True)
@@ -2602,8 +2635,9 @@ CRITICAL INSTRUCTIONS:
         view = SuggestionView(self, options)
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
     
-    @app_commands.command(name="summarize", description="Force history summarization")
+    @dnd_admin.command(name="summarize", description="Force history summarization")
     @app_commands.default_permissions(manage_guild=True)
+    @_rate_guard(command="dnd_admin_summarize", rpm=5, daily=30)
     async def force_summarize(self, interaction: discord.Interaction):
         """Force history summarization"""
         await interaction.response.defer()
@@ -2625,54 +2659,63 @@ CRITICAL INSTRUCTIONS:
         else:
             await interaction.followup.send("Nothing to summarize")
     
-    @app_commands.command(name="migrate_to_2024", description="Migrate campaign to 2024 rules")
+    @dnd_admin.command(name="migrate", description="Migrate campaign to 2024 rules")
     @app_commands.default_permissions(manage_guild=True)
     async def migrate_to_2024(self, interaction: discord.Interaction):
         """Migrate from legacy 2014 to 2024 rules"""
         await interaction.response.defer(ephemeral=True)
-        
+
         await asyncio.to_thread(update_dnd_rulebook, interaction.guild.id, "2024")
-        
-        conn = sqlite3.connect(DB_FILE)
-        c = conn.cursor()
-        c.execute("SELECT user_id, guild_id, char_data FROM dnd_characters WHERE guild_id=?", (str(interaction.guild.id)))
-        characters = c.fetchall()
-        
-        migrated = 0
-        for uid, gid, char_json in characters:
+
+        guild_id = str(interaction.guild.id)
+
+        def _do_migration() -> int:
+            """Run character data migration synchronously in a thread pool worker."""
+            conn = sqlite3.connect(DB_FILE)
+            c = conn.cursor()
+            migrated = 0
             try:
-                data = json.loads(char_json)
-                
-                if "race" in data:
-                    data["species"] = data.pop("race")
-                
-                if "has_inspiration" in data:
-                    data["heroic_inspiration"] = data.pop("has_inspiration")
-                
-                c.execute("UPDATE dnd_characters SET char_data=? WHERE user_id=? AND guild_id=?", 
-                         (json.dumps(data), uid, gid))
-                migrated += 1
-                
-            except Exception as e:
-                print(f"Error migrating character {uid}: {e}")
-        
-        conn.commit()
-        conn.close()
-        
+                c.execute(
+                    "SELECT user_id, guild_id, char_data FROM dnd_characters WHERE guild_id=?",
+                    (guild_id,)
+                )
+                characters = c.fetchall()
+                for uid, gid, char_json in characters:
+                    try:
+                        data = json.loads(char_json)
+                        if "race" in data:
+                            data["species"] = data.pop("race")
+                        if "has_inspiration" in data:
+                            data["heroic_inspiration"] = data.pop("has_inspiration")
+                        c.execute(
+                            "UPDATE dnd_characters SET char_data=? WHERE user_id=? AND guild_id=?",
+                            (json.dumps(data), uid, gid)
+                        )
+                        migrated += 1
+                    except Exception as e:
+                        print(f"Error migrating character {uid}: {e}")
+                conn.commit()
+            finally:
+                conn.close()
+            return migrated
+
+        migrated = await asyncio.to_thread(_do_migration)
+
         embed = discord.Embed(
             title="✅ Migration Complete",
             description=f"Successfully migrated {migrated} characters to 2024 rules.",
             color=0x2ECC71
         )
-        embed.add_field(name="Changes Applied", 
-                       value="• 'Race' → 'Species'\n• 'Inspiration' → 'Heroic Inspiration'\n• Rulebook set to 2024", 
+        embed.add_field(name="Changes Applied",
+                       value="• 'Race' → 'Species'\n• 'Inspiration' → 'Heroic Inspiration'\n• Rulebook set to 2024",
                        inline=False)
-        
+
         await interaction.followup.send(embed=embed, ephemeral=True)
+
     
     # --- GENERATIONAL VOID CYCLE COMMANDS ---
     
-    @app_commands.command(name="initialize_void_cycle", description="Start a Void Cycle campaign in Phase 1")
+    @dnd_admin.command(name="init_void", description="Start a Void Cycle campaign in Phase 1")
     @app_commands.default_permissions(manage_guild=True)
     @app_commands.describe(
         unique_point="Select the world's environmental anchor (1-12)",
@@ -2799,7 +2842,7 @@ CRITICAL INSTRUCTIONS:
             await interaction.followup.send(f"❌ Error: {str(e)}", ephemeral=True)
             print(f"Error in initialize_void_cycle: {e}")
     
-    @app_commands.command(name="advance_phase", description="Progress to next Void Cycle phase (DM only)")
+    @dnd_admin.command(name="advance_phase", description="Progress to next Void Cycle phase (DM only)")
     @app_commands.default_permissions(manage_guild=True)
     async def advance_phase(self, interaction: discord.Interaction):
         """DM command to advance to next phase with time skip and descendant prompts"""
@@ -2875,7 +2918,7 @@ CRITICAL INSTRUCTIONS:
             await interaction.followup.send(f"❌ Error: {str(e)}", ephemeral=True)
             print(f"Error in advance_phase: {e}")
     
-    @app_commands.command(name="mode_select", description="Choose Architect (auto) or Scribe (manual) mode")
+    @dnd_admin.command(name="mode", description="Choose Architect (auto) or Scribe (manual) mode")
     @app_commands.default_permissions(manage_guild=True)
     async def mode_select(self, interaction: discord.Interaction, mode: str = None):
         """Select session mode: Architect (Vespera controls tone/biome) or Scribe (players choose)"""
@@ -2969,7 +3012,7 @@ CRITICAL INSTRUCTIONS:
             else:
                 await interaction.followup.send(f"❌ Unknown mode '{mode}'. Use: architect or scribe", ephemeral=True)
     
-    @app_commands.command(name="chronicles", description="View campaign chronicles and victory scroll")
+    @dnd_lookup.command(name="chronicles", description="View campaign chronicles and victory scroll")
     @is_dnd_player()
     async def chronicles(self, interaction: discord.Interaction):
         """Display the Chronicles scroll with generational credits"""

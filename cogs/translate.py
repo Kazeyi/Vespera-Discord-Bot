@@ -25,6 +25,11 @@ from .utility_core.translation import (
 from .utility_core.personality import VesperaPersonality as VP
 from .utility_core.genre_mapper import log_genre_suggestion
 
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from rate_guard import rate_guard as _rate_guard
+
 class TranslateCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -85,6 +90,7 @@ class TranslateCog(commands.Cog):
         app_commands.Choice(name="💙 Emotional Ballad", value="emotional_ballad"),
         app_commands.Choice(name="⚖️ Balanced (Auto)",  value="balanced"),
     ])
+    @_rate_guard(command="subtitle", rpm=8, daily=250)
     async def subtitle(
         self,
         interaction: discord.Interaction,
@@ -96,9 +102,6 @@ class TranslateCog(commands.Cog):
         artist: str = None,
         genre: app_commands.Choice[str] = None,
     ):
-        if self.is_rate_limited(interaction.user.id):
-            return await interaction.response.send_message(VP.GENERAL['busy'], ephemeral=True)
-
         if len(text) < 1:
             return await interaction.response.send_message(VP.error("Input stream void."), ephemeral=True)
 
@@ -127,10 +130,8 @@ class TranslateCog(commands.Cog):
         for chunk in reply_chunks:
             await interaction.followup.send(chunk)
 
+    @_rate_guard(command="translate_ctx", rpm=3, daily=20)
     async def translate_ctx(self, interaction: discord.Interaction, message: discord.Message):
-        if self.is_rate_limited(interaction.user.id):
-            return await interaction.response.send_message("⏳ Slow down! (5s cooldown)", ephemeral=True)
-        
         if not message.content:
             return await interaction.response.send_message("❌ No text to translate.", ephemeral=True)
         

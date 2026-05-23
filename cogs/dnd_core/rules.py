@@ -4,7 +4,9 @@ import time
 import os
 import sys
 import json
+from collections import OrderedDict
 from typing import List, Dict, Tuple, Optional
+from cachetools import TTLCache
 
 # Ensure we can import from root
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -267,8 +269,9 @@ class RulebookIngestor:
         finally: conn.close()
 
 class RulebookRAG:
-    RULE_CACHE = {}
-    CACHE_MAX_SIZE = 50
+    # OrderedDict gives O(1) FIFO eviction instead of O(N) pop-first on plain dict
+    RULE_CACHE: OrderedDict = OrderedDict()
+    CACHE_MAX_SIZE = 100  # was 50, safe with OrderedDict
     
     @staticmethod
     def init_rulebook_table():
@@ -306,7 +309,7 @@ class RulebookRAG:
         conn.close()
         
         if len(RulebookRAG.RULE_CACHE) >= RulebookRAG.CACHE_MAX_SIZE:
-            RulebookRAG.RULE_CACHE.pop(next(iter(RulebookRAG.RULE_CACHE)))
+            RulebookRAG.RULE_CACHE.popitem(last=False)  # O(1) FIFO eviction
         RulebookRAG.RULE_CACHE[cache_key] = results
         return results
 
@@ -320,7 +323,10 @@ class RulebookRAG:
         RulebookRAG.RULE_CACHE[keyword.lower()] = [(keyword, rule_text)]
 
 class SRDLibrary:
-    SRD_CACHE = {}
+    # TTLCache prevents unbounded growth from repeated SRD file loads
+    # 20 categories max, expires after 1 hour (SRD data doesn't change at runtime)
+    SRD_CACHE: TTLCache = TTLCache(maxsize=20, ttl=3600)
+
     @staticmethod
     def load_srd_data(category: str) -> dict:
         if category in SRDLibrary.SRD_CACHE: return SRDLibrary.SRD_CACHE[category]

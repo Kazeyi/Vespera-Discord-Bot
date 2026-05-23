@@ -14,7 +14,8 @@ logger = logging.getLogger(__name__)
 DB_FILE = os.path.abspath("bot_database.db")
 
 # --- CACHE SYSTEM ---
-_cache = TTLCache(maxsize=2000, ttl=60)
+_cache = TTLCache(maxsize=500, ttl=60)  # Tuned for 969MB system (was 2000)
+
 
 def get_cached(key: str) -> Optional[Any]:
     """Get item from cache"""

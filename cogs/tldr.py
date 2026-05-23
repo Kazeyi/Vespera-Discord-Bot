@@ -23,6 +23,7 @@ from .utility_core.tldr import (
     generate_summary
 )
 from .utility_core.personality import VesperaPersonality as VP
+from rate_guard import rate_guard as _rate_guard
 
 class TLDRCog(commands.Cog):
     def __init__(self, bot):
@@ -86,10 +87,8 @@ class TLDRCog(commands.Cog):
             lines.append(f"{tag}{name}: {content}")
         return "\n".join(lines)
 
+    @_rate_guard(command="tldr", rpm=3, daily=20)
     async def tldr_message_context(self, interaction: discord.Interaction, message: discord.Message):
-        if self.is_rate_limited(interaction.user.id):
-            return await interaction.response.send_message("⏳ Slow down! (10s cooldown)", ephemeral=True)
-        
         await interaction.response.defer(ephemeral=True)
         
         channel = message.channel

@@ -96,11 +96,11 @@ class SessionScribe:
     @staticmethod
     def generate_session_embed(guild_id: int, thread_id: int, session_title: str = "Session Report") -> Optional[discord.Embed]:
         """Generate a session summary embed"""
-        config = await asyncio.to_thread(get_dnd_config, guild_id)
+        config = get_dnd_config(guild_id)
         if not config:
             return None
         
-        history = await asyncio.to_thread(get_dnd_history, thread_id, limit=15)
+        history = get_dnd_history(thread_id, limit=15)
         
         player_actions = []
         dm_narration = []
@@ -140,7 +140,7 @@ class SessionScribe:
             narration_text = "... ".join(dm_narration[-3:])[:300]
             embed.add_field(name="Story Progress", value=narration_text + "...", inline=False)
         
-        protagonist, score = await asyncio.to_thread(get_session_protagonist, guild_id)
+        protagonist, score = get_session_protagonist(guild_id)
         if protagonist:
             embed.add_field(name="Protagonist", value=f"{protagonist} (Destiny: {score})", inline=True)
         

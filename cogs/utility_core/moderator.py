@@ -64,10 +64,11 @@ def ensure_mod_tables():
         author_id TEXT NOT NULL,
         author_name TEXT NOT NULL,
         content TEXT NOT NULL,
-        timestamp REAL DEFAULT (unixepoch()),
-        INDEX idx_guild_channel (guild_id, channel_id),
-        INDEX idx_timestamp (timestamp)
+        timestamp REAL DEFAULT (unixepoch())
     )''')
+    
+    c.execute('CREATE INDEX IF NOT EXISTS idx_guild_channel ON message_context_log (guild_id, channel_id)')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_timestamp ON message_context_log (timestamp)')
     
     conn.commit()
     conn.close()
